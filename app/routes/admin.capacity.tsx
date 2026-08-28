@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { data, Form, Link } from "react-router";
 
 import type { Route } from "./+types/admin.capacity";
+import { requireRole } from "../services/auth.server";
 import {
   getCapacitySettings,
   saveDropoffType,
@@ -17,11 +18,13 @@ export function meta({}: Route.MetaArgs) {
   ];
 }
 
-export async function loader() {
+export async function loader({ request }: Route.LoaderArgs) {
+  await requireRole(request, env.trice_auction_db, env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string }, "admin");
   return getCapacitySettings(env.trice_auction_db);
 }
 
 export async function action({ request }: Route.ActionArgs) {
+  await requireRole(request, env.trice_auction_db, env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string }, "admin");
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const db = env.trice_auction_db;
