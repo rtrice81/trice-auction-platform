@@ -8,6 +8,9 @@ import {
 } from "react-router";
 
 import type { Route } from "./+types/root";
+import { env } from "cloudflare:workers";
+import { Form, Link } from "react-router";
+import { getCurrentUser } from "./services/auth.server";
 import "./app.css";
 
 export const links: Route.LinksFunction = () => [
@@ -41,8 +44,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function App() {
-  return <Outlet />;
+export async function loader({ request }: Route.LoaderArgs) {
+  return { user: await getCurrentUser(request, env.trice_auction_db, env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string }) };
+}
+
+export default function App({ loaderData }: Route.ComponentProps) {
+  return <><nav className="flex items-center justify-between border-b bg-white px-6 py-3 text-sm"><Link to="/" className="font-bold">Trice Auctions</Link>{loaderData.user ? <div className="flex items-center gap-3"><span>{loaderData.user.name}</span><Form action="/logout" method="post"><button>Logout</button></Form></div> : <div className="flex gap-3"><Link to="/login">Login</Link><Link to="/register">Register</Link></div>}</nav><Outlet /></>;
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
