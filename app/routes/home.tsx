@@ -3,6 +3,7 @@ import { data, Form } from "react-router";
 
 import type { Route } from "./+types/home";
 import { createBooking, getBookingOptions } from "../services/booking.server";
+import { requireUser } from "../services/auth.server";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -19,6 +20,7 @@ export async function loader() {
 }
 
 export async function action({ request }: Route.ActionArgs) {
+  const user = await requireUser(request, env.trice_auction_db, env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string });
   const formData = await request.formData();
   const allocations = Array.from(formData.entries())
     .filter(([name]) => name.startsWith("allocation-"))
@@ -28,7 +30,7 @@ export async function action({ request }: Route.ActionArgs) {
     }));
 
   const result = await createBooking(env.trice_auction_db, {
-    email: String(formData.get("email") ?? "").trim().toLowerCase(),
+    userId: user.id,
     appointmentDate: String(formData.get("appointmentDate") ?? ""),
     dropoffTypeId: Number(formData.get("dropoffTypeId")),
     description: String(formData.get("description") ?? "").trim(),
@@ -77,15 +79,6 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
               <h2 id="consignor-heading" className="mt-1 text-2xl font-semibold">Your drop-off</h2>
             </div>
             <div className="grid gap-5 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm sm:grid-cols-2">
-              <label className="text-sm font-semibold text-stone-800">
-                Email address
-                <input
-                  required
-                  type="email"
-                  name="email"
-                  className="mt-2 block w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal outline-none focus:border-amber-600 focus:ring-2 focus:ring-amber-100"
-                />
-              </label>
               <label className="text-sm font-semibold text-stone-800">
                 Preferred drop-off date
                 <input

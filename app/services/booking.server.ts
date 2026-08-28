@@ -16,7 +16,7 @@ export type DropoffType = {
 };
 
 type BookingInput = {
-  email: string;
+  userId: number;
   appointmentDate: string;
   dropoffTypeId: number;
   description: string;
@@ -73,13 +73,9 @@ export async function createBooking(
   const errors = validateInput(input);
   if (errors.length > 0) return { ok: false, errors };
 
-  const [options, settings, existingUser] = await Promise.all([
+  const [options, settings] = await Promise.all([
     getBookingOptions(db),
     getSettings(db),
-    db
-      .prepare("SELECT id FROM users WHERE email = ?")
-      .bind(input.email)
-      .first<{ id: number }>(),
   ]);
 
   const dropoffType = options.dropoffTypes.find(
@@ -93,8 +89,7 @@ export async function createBooking(
   if (allocationErrors.length > 0) return { ok: false, errors: allocationErrors };
 
   const monthBounds = getMonthBounds(input.appointmentDate);
-  if (existingUser) {
-    const monthlyBookings = await db
+  const monthlyBookings = await db
       .prepare(
         `SELECT COUNT(*) AS count
          FROM appointments
@@ -104,19 +99,18 @@ export async function createBooking(
            AND status = ?`,
       )
       .bind(
-        existingUser.id,
+        input.userId,
         monthBounds.start,
         monthBounds.end,
         ACTIVE_APPOINTMENT_STATUS,
       )
       .first<{ count: number }>();
 
-    if ((monthlyBookings?.count ?? 0) >= settings.monthlyBookingLimit) {
+  if ((monthlyBookings?.count ?? 0) >= settings.monthlyBookingLimit) {
       return {
         ok: false,
         errors: [`This consignor has reached the monthly booking limit of ${settings.monthlyBookingLimit}.`],
       };
-    }
   }
 
   await db
@@ -137,7 +131,6 @@ export async function createBooking(
   );
   if (capacityErrors.length > 0) return { ok: false, errors: capacityErrors };
 
-  const userId = await findOrCreateUser(db, input.email);
   const appointment = await db
     .prepare(
       `INSERT INTO appointments (
@@ -146,7 +139,7 @@ export async function createBooking(
       RETURNING id`,
     )
     .bind(
-      userId,
+      input.userId,
       input.appointmentDate,
       dropoffType.id,
       input.description || null,
@@ -183,7 +176,6 @@ export async function createBooking(
 
 function validateInput(input: BookingInput) {
   const errors: string[] = [];
-  if (!/^\S+@\S+\.\S+$/.test(input.email)) errors.push("Enter a valid email address.");
   if (!isIsoDate(input.appointmentDate)) errors.push("Choose a valid drop-off date.");
   if (!Number.isInteger(input.dropoffTypeId) || input.dropoffTypeId < 1) {
     errors.push("Choose a load type.");
@@ -298,18 +290,6 @@ async function getCapacityErrors(
   return errors;
 }
 
-async function findOrCreateUser(db: D1Database, email: string) {
-  await db
-    .prepare("INSERT INTO users (email) VALUES (?) ON CONFLICT(email) DO NOTHING")
-    .bind(email)
-    .run();
-  const user = await db
-    .prepare("SELECT id FROM users WHERE email = ?")
-    .bind(email)
-    .first<{ id: number }>();
-  if (!user) throw new Error("The consignor could not be created.");
-  return user.id;
-}
 
 function calculateAllocatedPoints(capacityPoints: number, percentage: number) {
   return Math.round(capacityPoints * (percentage / 100) * 10_000) / 10_000;
