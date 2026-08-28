@@ -9,6 +9,7 @@
     "deploy": "npm run build && wrangler deploy",
     "preview": "npm run build && vite preview",
     "cf-typegen": "wrangler types",
+    "admin:promote-local": "node scripts/promote-local-admin.mjs",
     "postinstall": "wrangler types"
   },
   "dependencies": {

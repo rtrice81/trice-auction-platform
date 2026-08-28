@@ -10,7 +10,7 @@ import {
 import type { Route } from "./+types/root";
 import { env } from "cloudflare:workers";
 import { Form, Link } from "react-router";
-import { getCurrentUser, hasPermission } from "./services/auth.server";
+import { getCurrentUser } from "./services/auth.server";
 import "./app.css";
 
 export const links: Route.LinksFunction = () => [
@@ -49,34 +49,34 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export default function App({ loaderData }: Route.ComponentProps) {
-  return <><nav className="flex items-center justify-between border-b bg-white px-6 py-3 text-sm"><Link to="/" className="font-bold">Trice Auctions</Link>{loaderData.user ? <div className="flex items-center gap-3"><Link to="/my-appointments">My Appointments</Link>{hasPermission(loaderData.user,"appointment:read-scheduled")&&<Link to="/employee">Employee</Link>}{loaderData.user.role === "admin"&&<><Link to="/admin/users">Admin users</Link><Link to="/admin/schedule">Schedule</Link><Link to="/admin/capacity">Capacity</Link></>}<span>{loaderData.user.name}</span><Form action="/logout" method="post"><button>Logout</button></Form></div> : <div className="flex gap-3"><Link to="/login">Login</Link><Link to="/register">Register</Link></div>}</nav><Outlet /></>;
+  const user = loaderData.user;
+  const canUseEmployeeTools = user?.role === "employee" || user?.role === "manager" || user?.role === "admin";
+  return <><nav className="flex items-center justify-between border-b bg-white px-6 py-3 text-sm"><Link to="/" className="font-bold">Trice Auctions</Link>{user ? <div className="flex items-center gap-3"><Link to="/my-appointments">My Appointments</Link>{canUseEmployeeTools&&<Link to="/employee">Employee</Link>}{user.role === "admin"&&<><Link to="/admin/users">Admin users</Link><Link to="/admin/schedule">Schedule</Link><Link to="/admin/capacity">Capacity</Link></>}<span>{user.name}</span><Form action="/logout" method="post"><button>Logout</button></Form></div> : <div className="flex gap-3"><Link to="/login">Login</Link><Link to="/register">Register</Link></div>}</nav><Outlet /></>;
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
-  let message = "Oops!";
-  let details = "An unexpected error occurred.";
-  let stack: string | undefined;
+  let message = "Request failed";
+  let details = "Something unexpected happened. Please try again.";
 
   if (isRouteErrorResponse(error)) {
-    message = error.status === 404 ? "404" : "Error";
-    details =
-      error.status === 404
-        ? "The requested page could not be found."
-        : error.statusText || details;
-  } else if (import.meta.env.DEV && error && error instanceof Error) {
-    details = error.message;
-    stack = error.stack;
+    if (error.status === 404) {
+      message = "Page not found";
+      details = "The page or record you requested could not be found.";
+    } else if (error.status === 403) {
+      message = "Access denied";
+      details = "You do not have permission to access this page.";
+    } else if (error.status === 401) {
+      message = "Sign in required";
+      details = "Please sign in to continue.";
+    } else {
+      details = "We could not complete that request. Please try again.";
+    }
   }
 
   return (
     <main className="pt-16 p-4 container mx-auto">
       <h1>{message}</h1>
       <p>{details}</p>
-      {stack && (
-        <pre className="w-full p-4 overflow-x-auto">
-          <code>{stack}</code>
-        </pre>
-      )}
     </main>
   );
 }

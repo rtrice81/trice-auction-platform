@@ -1,79 +1,15 @@
-# Welcome to React Router!
+# Trice Auction Platform
 
-A modern, production-ready template for building full-stack React applications using React Router.
+Consignment drop-off scheduling for customers, operations staff, managers, and administrators. It runs as a React Router application on Cloudflare Workers with D1.
 
-## Features
+## Local development
 
-- 🚀 Server-side rendering
-- ⚡️ Hot Module Replacement (HMR)
-- 📦 Asset bundling and optimization
-- 🔄 Data loading and mutations
-- 🔒 TypeScript by default
-- 🎉 TailwindCSS for styling
-- 📖 [React Router docs](https://reactrouter.com/)
-
-## Getting Started
-
-### Installation
-
-Install the dependencies:
-
-```bash
+```sh
 npm install
-```
-
-### Development
-
-Start the development server with HMR:
-
-```bash
+cp .dev.vars.example .dev.vars
 npm run dev
 ```
 
-Your application will be available at `http://localhost:5173`.
+Run checks with `npm run typecheck` and `npm run build`.
 
-## Previewing the Production Build
-
-Preview the production build locally:
-
-```bash
-npm run preview
-```
-
-## Building for Production
-
-Create a production build:
-
-```bash
-npm run build
-```
-
-## Deployment
-
-Deployment is done using the Wrangler CLI.
-
-To build and deploy directly to production:
-
-```sh
-npm run deploy
-```
-
-To deploy a preview URL:
-
-```sh
-npx wrangler versions upload
-```
-
-You can then promote a version to production after verification or roll it out progressively.
-
-```sh
-npx wrangler versions deploy
-```
-
-## Styling
-
-This template comes with [Tailwind CSS](https://tailwindcss.com/) already configured for a simple default starting experience. You can use whatever CSS framework you prefer.
-
----
-
-Built with ❤️ using React Router.
+See [public-beta operations](docs/public-beta.md) for required secrets, local admin bootstrap, fresh-D1 migration testing, production deployment, security review, and the smoke-test checklist.

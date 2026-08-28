@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { data, Form, Link } from "react-router";
 import type { Route } from "./+types/admin.users";
-import { requireRole, ROLES } from "../services/auth.server";
+import { requireRole } from "../services/auth.server";
 import {
   changeManagedUserRole,
   listManagedUsers,
@@ -10,6 +10,7 @@ import {
 } from "../services/user-management.server";
 
 const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
+const ROLE_OPTIONS = ["customer", "employee", "manager", "admin"] as const;
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -128,7 +129,7 @@ export default function AdminUsers({ loaderData, actionData }: Route.ComponentPr
                         <input type="hidden" name="intent" value="change-role" />
                         <input type="hidden" name="targetUserId" value={user.id} />
                         <select name="role" defaultValue={user.role} className="rounded border border-stone-300 bg-white px-2 py-1.5">
-                          {ROLES.map((role) => <option key={role} value={role}>{role}</option>)}
+                          {ROLE_OPTIONS.map((role) => <option key={role} value={role}>{role}</option>)}
                         </select>
                         <button className="rounded bg-stone-800 px-3 py-1.5 font-semibold text-white">Save role</button>
                       </Form>
