@@ -44,6 +44,14 @@ export async function recordAppointmentOverrideAudit(
   db: D1Database,
   input: AppointmentOverrideAuditInput,
 ): Promise<number> {
+  const result = await createAppointmentOverrideAuditStatement(db, input).run();
+  return Number(result.meta.last_row_id);
+}
+
+export function createAppointmentOverrideAuditStatement(
+  db: D1Database,
+  input: AppointmentOverrideAuditInput,
+): D1PreparedStatement {
   if (!Number.isInteger(input.appointmentId) || input.appointmentId < 1) {
     throw new Error("A valid appointment ID is required for an override audit entry.");
   }
@@ -54,7 +62,7 @@ export async function recordAppointmentOverrideAudit(
     throw new Error("An override audit reason is required.");
   }
 
-  const result = await db
+  return db
     .prepare(
       `INSERT INTO appointment_override_audits (
         appointment_id,
@@ -78,10 +86,7 @@ export async function recordAppointmentOverrideAudit(
       JSON.stringify(input.previousValues),
       JSON.stringify(input.requestedValues),
       JSON.stringify(input.capacityContext),
-    )
-    .run();
-
-  return Number(result.meta.last_row_id);
+    );
 }
 
 export async function getAppointmentOverrideHistory(
