@@ -6,5 +6,7 @@ export default [
   route("my-appointments/:id", "routes/my-appointments.detail.tsx"),
   route("register", "routes/register.tsx"), route("login", "routes/login.tsx"), route("logout", "routes/logout.tsx"),
   route("api/auth/*", "routes/api.auth.ts"),
+  route("employee", "routes/employee.tsx"),
+  route("employee/:id", "routes/employee.detail.tsx"),
   route("admin/capacity", "routes/admin.capacity.tsx"),
 ] satisfies RouteConfig;
