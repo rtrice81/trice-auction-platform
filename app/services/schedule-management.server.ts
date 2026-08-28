@@ -1,31 +1,29 @@
 import { getEffectiveDateCapacity, type CapacityAreaDefaults } from "./date-capacity.server";
 
 export type ScheduleResult =
-  | { ok: true; message: string }
+  | { ok: true; message: string; eventId?: number }
   | { ok: false; errors: string[] };
 
-export type ScheduleDay = {
+export type EventAreaInput = {
+  itemAreaId: number;
+  capacityPoints: number;
+  overflowAllowancePoints: number;
+};
+
+export type DropoffEventInput = {
   date: string;
-  exists: boolean;
+  eventName: string;
   isOpen: boolean;
-  note: string | null;
   dailyCapacityPoints: number;
-  dailyCapacityOverridden: boolean;
-  scheduledAppointments: number;
+  note: string;
+  areas: EventAreaInput[];
+};
+
+export type EventArea = EventAreaInput & {
+  name: string;
   usedPoints: number;
   remainingPoints: number;
-  areas: Array<{
-    id: number;
-    name: string;
-    usedPoints: number;
-    capacityPoints: number;
-    overflowAllowancePoints: number;
-    remainingPoints: number;
-    overflowUsagePoints: number;
-    overridden: boolean;
-    capacityOverridden: boolean;
-    overflowOverridden: boolean;
-  }>;
+  overflowUsagePoints: number;
 };
 
 export type ScheduledAppointment = {
@@ -37,298 +35,273 @@ export type ScheduledAppointment = {
   status: string;
 };
 
-export async function getScheduleOverview(db: D1Database, selectedDate: string) {
-  const [defaults, areaDefaults, dateResult] = await Promise.all([
+export type DropoffEvent = {
+  id: number;
+  date: string;
+  eventName: string | null;
+  isOpen: boolean;
+  note: string | null;
+  dailyCapacityPoints: number;
+  scheduledAppointments: number;
+  usedPoints: number;
+  remainingPoints: number;
+  areas: EventArea[];
+  appointments: ScheduledAppointment[];
+};
+
+export function dropoffEventInputFromForm(form: FormData): DropoffEventInput {
+  const areaIds = Array.from(form.keys())
+    .filter((key) => key.startsWith("area-") && key.endsWith("-capacity"))
+    .map((key) => Number(key.slice("area-".length, -"-capacity".length)));
+  return {
+    date: String(form.get("date") ?? ""),
+    eventName: String(form.get("eventName") ?? ""),
+    isOpen: form.get("isOpen") === "true",
+    dailyCapacityPoints: Number(form.get("dailyCapacityPoints")),
+    note: String(form.get("note") ?? ""),
+    areas: areaIds.map((itemAreaId) => ({
+      itemAreaId,
+      capacityPoints: Number(form.get(`area-${itemAreaId}-capacity`)),
+      overflowAllowancePoints: Number(form.get(`area-${itemAreaId}-overflow`)),
+    })),
+  };
+}
+
+export async function getEventFormDefaults(db: D1Database) {
+  const [dailyCapacityPoints, areas] = await Promise.all([
+    getDefaultDailyCapacity(db),
+    getAreaDefaults(db),
+  ]);
+  return {
+    dailyCapacityPoints,
+    areas: areas.map((area) => ({
+      itemAreaId: area.id,
+      name: area.name,
+      capacityPoints: area.normalCapacityPoints,
+      overflowAllowancePoints: area.overflowAllowancePoints,
+    })),
+  };
+}
+
+export async function getDropoffEvents(db: D1Database): Promise<DropoffEvent[]> {
+  const [defaults, areaDefaults, eventRows] = await Promise.all([
     getDefaultDailyCapacity(db),
     getAreaDefaults(db),
     db
-      .prepare(
-        `SELECT dropoff_date AS date FROM dropoff_days WHERE dropoff_date >= ? AND dropoff_date < ?
-         UNION
-         SELECT DISTINCT appointment_date AS date FROM appointments WHERE appointment_date >= ? AND appointment_date < ?
-         ORDER BY date`,
-      )
-      .bind(selectedDate, addDays(selectedDate, 31), selectedDate, addDays(selectedDate, 31))
-      .all<{ date: string }>(),
+      .prepare("SELECT id FROM dropoff_days ORDER BY dropoff_date ASC")
+      .all<{ id: number }>(),
   ]);
-  const dates = [...new Set([selectedDate, ...dateResult.results.map((row) => row.date)])].sort();
-  const days = await Promise.all(dates.map((date) => getScheduleDay(db, date, defaults, areaDefaults)));
-  const selectedAppointments = await getAppointmentsForDate(db, selectedDate);
-  return { selectedDate, days, selected: days.find((day) => day.date === selectedDate)!, selectedAppointments };
+  return Promise.all(eventRows.results.map((event) => getDropoffEvent(db, event.id, defaults, areaDefaults)));
 }
 
-export async function createDropoffDate(
-  db: D1Database,
-  input: { date: string; isOpen: boolean; initializeWithDefaults: boolean; note: string },
-): Promise<ScheduleResult> {
-  if (!isIsoDate(input.date)) return { ok: false, errors: ["Choose a valid date."] };
-  if (input.date < today()) return { ok: false, errors: ["New drop-off dates must be today or later."] };
+export async function getDropoffEventById(db: D1Database, eventId: number) {
+  const [defaults, areaDefaults] = await Promise.all([getDefaultDailyCapacity(db), getAreaDefaults(db)]);
+  return getDropoffEvent(db, eventId, defaults, areaDefaults);
+}
+
+export async function createDropoffEvent(db: D1Database, input: DropoffEventInput): Promise<ScheduleResult> {
+  const validation = await validateEventInput(db, input, true);
+  if (validation.length > 0) return { ok: false, errors: validation };
 
   const existing = await db
     .prepare("SELECT id FROM dropoff_days WHERE dropoff_date = ?")
     .bind(input.date)
     .first<{ id: number }>();
-  if (existing) return { ok: false, errors: ["This drop-off date has already been configured."] };
+  if (existing) return { ok: false, errors: ["A Drop-Off Event already exists for this date."] };
 
-  const [defaultDailyCapacity, areas] = await Promise.all([
-    getDefaultDailyCapacity(db),
-    input.initializeWithDefaults ? getAreaDefaults(db) : Promise.resolve([]),
-  ]);
-  const day = await db
+  const event = await db
     .prepare(
       `INSERT INTO dropoff_days (
-         dropoff_date, capacity_points, is_open, notes, daily_capacity_override
-       ) VALUES (?, ?, ?, ?, ?)
-       RETURNING id`,
+        dropoff_date, event_name, capacity_points, daily_capacity_override, is_open, notes
+      ) VALUES (?, ?, ?, ?, ?, ?)
+      RETURNING id`,
     )
     .bind(
       input.date,
-      defaultDailyCapacity,
+      input.eventName.trim() || null,
+      input.dailyCapacityPoints,
+      input.dailyCapacityPoints,
       input.isOpen ? 1 : 0,
       input.note.trim() || null,
-      input.initializeWithDefaults ? defaultDailyCapacity : null,
     )
     .first<{ id: number }>();
-  if (!day) return { ok: false, errors: ["The drop-off date could not be created."] };
+  if (!event) return { ok: false, errors: ["The Drop-Off Event could not be saved."] };
 
-  if (input.initializeWithDefaults) {
-    await db.batch(
-      areas.map((area) =>
-        db
-          .prepare(
-            `INSERT INTO dropoff_day_area_overrides
-              (dropoff_day_id, item_area_id, capacity_points_override, overflow_allowance_points_override)
-             VALUES (?, ?, ?, ?)`,
-          )
-          .bind(day.id, area.id, area.normalCapacityPoints, area.overflowAllowancePoints),
-      ),
-    );
-  }
-
+  await db.batch(
+    input.areas.map((area) =>
+      db
+        .prepare(
+          `INSERT INTO dropoff_day_area_overrides (
+            dropoff_day_id, item_area_id, capacity_points_override, overflow_allowance_points_override
+          ) VALUES (?, ?, ?, ?)`,
+        )
+        .bind(event.id, area.itemAreaId, area.capacityPoints, area.overflowAllowancePoints),
+    ),
+  );
   return {
     ok: true,
-    message: input.isOpen
-      ? "Drop-off date created and opened for bookings."
-      : "Drop-off date created and kept closed for bookings.",
+    eventId: event.id,
+    message: input.isOpen ? "Drop-Off Event saved and open for bookings." : "Drop-Off Event saved as closed.",
   };
 }
 
-export async function deleteUnusedFutureDropoffDate(
+export async function updateDropoffEvent(
   db: D1Database,
-  date: string,
+  eventId: number,
+  input: DropoffEventInput,
 ): Promise<ScheduleResult> {
-  if (!isIsoDate(date)) return { ok: false, errors: ["Choose a valid date."] };
-  if (date <= today()) return { ok: false, errors: ["Only unused future dates can be removed. Close this date instead."] };
+  const validation = await validateEventInput(db, input, false);
+  if (validation.length > 0) return { ok: false, errors: validation };
 
-  const [day, appointmentCount] = await Promise.all([
-    db.prepare("SELECT id FROM dropoff_days WHERE dropoff_date = ?").bind(date).first<{ id: number }>(),
-    db.prepare("SELECT COUNT(*) AS count FROM appointments WHERE appointment_date = ?").bind(date).first<{ count: number }>(),
-  ]);
-  if (!day) return { ok: false, errors: ["This drop-off date has not been configured."] };
-  if ((appointmentCount?.count ?? 0) > 0) {
-    return { ok: false, errors: ["This date has appointments and cannot be removed. Close it instead."] };
-  }
+  const event = await db.prepare("SELECT id FROM dropoff_days WHERE id = ?").bind(eventId).first<{ id: number }>();
+  if (!event) return { ok: false, errors: ["This Drop-Off Event no longer exists."] };
 
   await db.batch([
-    db.prepare("DELETE FROM dropoff_day_area_overrides WHERE dropoff_day_id = ?").bind(day.id),
-    db.prepare("DELETE FROM dropoff_days WHERE id = ?").bind(day.id),
-  ]);
-  return { ok: true, message: "Unused future drop-off date removed." };
-}
-
-export async function saveDateCapacityOverrides(
-  db: D1Database,
-  input: {
-    date: string;
-    isOpen: boolean;
-    dailyCapacityOverride: number | null;
-    note: string;
-    areas: Array<{ itemAreaId: number; capacityOverride: number | null; overflowOverride: number | null }>;
-  },
-): Promise<ScheduleResult> {
-  const errors = validateOverrideInput(input);
-  if (errors.length > 0) return { ok: false, errors };
-  const [defaultDailyCapacity, areas] = await Promise.all([getDefaultDailyCapacity(db), getAreaDefaults(db)]);
-  const validAreaIds = new Set(areas.map((area) => area.id));
-  if (input.areas.some((area) => !validAreaIds.has(area.itemAreaId))) {
-    return { ok: false, errors: ["An unavailable storage area was submitted."] };
-  }
-  const hasOverride = !input.isOpen || input.dailyCapacityOverride !== null || input.areas.some(
-    (area) => area.capacityOverride !== null || area.overflowOverride !== null,
-  );
-  if (hasOverride && !input.note.trim()) {
-    return { ok: false, errors: ["Add an admin note explaining the date-specific change."] };
-  }
-
-  const day = await db.prepare("SELECT id FROM dropoff_days WHERE dropoff_date = ?").bind(input.date).first<{ id: number }>();
-  if (!day) return { ok: false, errors: ["Create this drop-off date before changing its capacity."] };
-
-  const statements: D1PreparedStatement[] = [
     db
       .prepare(
         `UPDATE dropoff_days
-         SET is_open = ?,
-             daily_capacity_override = ?,
-             capacity_points = ?,
-             notes = ?
+         SET event_name = ?, capacity_points = ?, daily_capacity_override = ?, is_open = ?, notes = ?
          WHERE id = ?`,
       )
       .bind(
+        input.eventName.trim() || null,
+        input.dailyCapacityPoints,
+        input.dailyCapacityPoints,
         input.isOpen ? 1 : 0,
-        input.dailyCapacityOverride,
-        input.dailyCapacityOverride ?? defaultDailyCapacity,
         input.note.trim() || null,
-        day.id,
+        eventId,
       ),
-  ];
-  for (const area of input.areas) {
-    if (area.capacityOverride === null && area.overflowOverride === null) {
-      statements.push(
-        db
-          .prepare("DELETE FROM dropoff_day_area_overrides WHERE dropoff_day_id = ? AND item_area_id = ?")
-          .bind(day.id, area.itemAreaId),
-      );
-    } else {
-      statements.push(
-        db
-          .prepare(
-            `INSERT INTO dropoff_day_area_overrides
-              (dropoff_day_id, item_area_id, capacity_points_override, overflow_allowance_points_override)
-             VALUES (?, ?, ?, ?)
-             ON CONFLICT(dropoff_day_id, item_area_id) DO UPDATE SET
-               capacity_points_override = excluded.capacity_points_override,
-               overflow_allowance_points_override = excluded.overflow_allowance_points_override`,
-          )
-          .bind(day.id, area.itemAreaId, area.capacityOverride, area.overflowOverride),
-      );
-    }
-  }
-  await db.batch(statements);
-  return { ok: true, message: "Date-specific booking capacity saved." };
-}
-
-export async function resetDateCapacityOverrides(db: D1Database, date: string): Promise<ScheduleResult> {
-  if (!isIsoDate(date)) return { ok: false, errors: ["Choose a valid date."] };
-  const defaultDailyCapacity = await getDefaultDailyCapacity(db);
-  const day = await db.prepare("SELECT id FROM dropoff_days WHERE dropoff_date = ?").bind(date).first<{ id: number }>();
-  if (!day) return { ok: false, errors: ["Create this drop-off date before resetting it."] };
-  await db.batch([
-    db
-      .prepare(
-        `UPDATE dropoff_days
-         SET is_open = 1, daily_capacity_override = NULL, capacity_points = ?, notes = NULL
-         WHERE id = ?`,
-      )
-      .bind(defaultDailyCapacity, day.id),
-    db.prepare("DELETE FROM dropoff_day_area_overrides WHERE dropoff_day_id = ?").bind(day.id),
+    ...input.areas.map((area) =>
+      db
+        .prepare(
+          `INSERT INTO dropoff_day_area_overrides (
+            dropoff_day_id, item_area_id, capacity_points_override, overflow_allowance_points_override
+          ) VALUES (?, ?, ?, ?)
+          ON CONFLICT(dropoff_day_id, item_area_id) DO UPDATE SET
+            capacity_points_override = excluded.capacity_points_override,
+            overflow_allowance_points_override = excluded.overflow_allowance_points_override`,
+        )
+        .bind(eventId, area.itemAreaId, area.capacityPoints, area.overflowAllowancePoints),
+    ),
   ]);
-  return { ok: true, message: "Date reset to global defaults." };
+  return { ok: true, eventId, message: "Drop-Off Event updated." };
 }
 
-async function getScheduleDay(
+export async function setDropoffEventOpen(
   db: D1Database,
-  date: string,
-  defaultDailyCapacity: number,
-  areas: CapacityAreaDefaults[],
-): Promise<ScheduleDay> {
-  const [effective, summary, areaUsage] = await Promise.all([
-    getEffectiveDateCapacity(db, date, defaultDailyCapacity, areas),
-    db
-      .prepare(
-        `SELECT COUNT(*) AS scheduledAppointments, COALESCE(SUM(dt.capacity_points), 0) AS usedPoints
-         FROM appointments a
-         JOIN dropoff_types dt ON dt.id = a.dropoff_type_id
-         WHERE a.appointment_date = ? AND a.status = 'scheduled'`,
-      )
-      .bind(date)
-      .first<{ scheduledAppointments: number; usedPoints: number }>(),
-    db
-      .prepare(
-        `SELECT allocation.item_area_id AS itemAreaId, COALESCE(SUM(allocation.capacity_points), 0) AS usedPoints
-         FROM appointment_area_allocations allocation
-         JOIN appointments a ON a.id = allocation.appointment_id
-         WHERE a.appointment_date = ? AND a.status = 'scheduled'
-         GROUP BY allocation.item_area_id`,
-      )
-      .bind(date)
-      .all<{ itemAreaId: number; usedPoints: number }>(),
+  eventId: number,
+  isOpen: boolean,
+): Promise<ScheduleResult> {
+  const event = await db.prepare("SELECT id FROM dropoff_days WHERE id = ?").bind(eventId).first<{ id: number }>();
+  if (!event) return { ok: false, errors: ["This Drop-Off Event no longer exists."] };
+  await db.prepare("UPDATE dropoff_days SET is_open = ? WHERE id = ?").bind(isOpen ? 1 : 0, eventId).run();
+  return { ok: true, eventId, message: isOpen ? "Drop-Off Event opened for bookings." : "Drop-Off Event closed for bookings." };
+}
+
+export async function deleteDropoffEvent(db: D1Database, eventId: number): Promise<ScheduleResult> {
+  const [event, appointmentCount] = await Promise.all([
+    db.prepare("SELECT id FROM dropoff_days WHERE id = ?").bind(eventId).first<{ id: number }>(),
+    db.prepare("SELECT COUNT(*) AS count FROM appointments WHERE appointment_date = (SELECT dropoff_date FROM dropoff_days WHERE id = ?)").bind(eventId).first<{ count: number }>(),
   ]);
-  const usedByArea = new Map(areaUsage.results.map((row) => [row.itemAreaId, row.usedPoints]));
+  if (!event) return { ok: false, errors: ["This Drop-Off Event no longer exists."] };
+  if ((appointmentCount?.count ?? 0) > 0) return { ok: false, errors: ["This event has appointments. Close it instead of deleting it."] };
+  await db.batch([
+    db.prepare("DELETE FROM dropoff_day_area_overrides WHERE dropoff_day_id = ?").bind(eventId),
+    db.prepare("DELETE FROM dropoff_days WHERE id = ?").bind(eventId),
+  ]);
+  return { ok: true, message: "Drop-Off Event deleted." };
+}
+
+async function getDropoffEvent(
+  db: D1Database,
+  eventId: number,
+  defaultDailyCapacity: number,
+  areaDefaults: CapacityAreaDefaults[],
+): Promise<DropoffEvent> {
+  const event = await db
+    .prepare(
+      `SELECT id, dropoff_date AS date, event_name AS eventName, is_open AS isOpen, notes
+       FROM dropoff_days WHERE id = ?`,
+    )
+    .bind(eventId)
+    .first<{ id: number; date: string; eventName: string | null; isOpen: number; notes: string | null }>();
+  if (!event) throw new Response("Not Found", { status: 404 });
+
+  const [effective, summary, usage, appointments] = await Promise.all([
+    getEffectiveDateCapacity(db, event.date, defaultDailyCapacity, areaDefaults),
+    db.prepare(
+      `SELECT COUNT(*) AS scheduledAppointments, COALESCE(SUM(dt.capacity_points), 0) AS usedPoints
+       FROM appointments appointment
+       JOIN dropoff_types dt ON dt.id = appointment.dropoff_type_id
+       WHERE appointment.appointment_date = ? AND appointment.status = 'scheduled'`,
+    ).bind(event.date).first<{ scheduledAppointments: number; usedPoints: number }>(),
+    db.prepare(
+      `SELECT allocation.item_area_id AS itemAreaId, COALESCE(SUM(allocation.capacity_points), 0) AS usedPoints
+       FROM appointment_area_allocations allocation
+       JOIN appointments appointment ON appointment.id = allocation.appointment_id
+       WHERE appointment.appointment_date = ? AND appointment.status = 'scheduled'
+       GROUP BY allocation.item_area_id`,
+    ).bind(event.date).all<{ itemAreaId: number; usedPoints: number }>(),
+    getAppointmentsForDate(db, event.date),
+  ]);
+  if (!effective) throw new Response("Not Found", { status: 404 });
+
+  const usedByArea = new Map(usage.results.map((row) => [row.itemAreaId, row.usedPoints]));
   const usedPoints = summary?.usedPoints ?? 0;
-  if (!effective) {
-    return {
-      date,
-      exists: false,
-      isOpen: false,
-      note: null,
-      dailyCapacityPoints: defaultDailyCapacity,
-      dailyCapacityOverridden: false,
-      scheduledAppointments: summary?.scheduledAppointments ?? 0,
-      usedPoints,
-      remainingPoints: defaultDailyCapacity - usedPoints,
-      areas: areas.map((area) => {
-        const used = usedByArea.get(area.id) ?? 0;
-        return {
-          id: area.id,
-          name: area.name,
-          usedPoints: used,
-          capacityPoints: area.normalCapacityPoints,
-          overflowAllowancePoints: area.overflowAllowancePoints,
-          remainingPoints: area.normalCapacityPoints + area.overflowAllowancePoints - used,
-          overflowUsagePoints: Math.max(0, used - area.normalCapacityPoints),
-          overridden: false,
-          capacityOverridden: false,
-          overflowOverridden: false,
-        };
-      }),
-    };
-  }
   return {
-    date,
-    exists: true,
-    isOpen: effective.isOpen,
-    note: effective.note,
+    id: event.id,
+    date: event.date,
+    eventName: event.eventName,
+    isOpen: event.isOpen === 1,
+    note: event.notes,
     dailyCapacityPoints: effective.dailyCapacityPoints,
-    dailyCapacityOverridden: effective.dailyCapacityOverridden,
     scheduledAppointments: summary?.scheduledAppointments ?? 0,
     usedPoints,
     remainingPoints: effective.dailyCapacityPoints - usedPoints,
     areas: effective.areas.map((area) => {
       const used = usedByArea.get(area.id) ?? 0;
       return {
-        id: area.id,
+        itemAreaId: area.id,
         name: area.name,
-        usedPoints: used,
         capacityPoints: area.capacityPoints,
         overflowAllowancePoints: area.overflowAllowancePoints,
+        usedPoints: used,
         remainingPoints: area.capacityPoints + area.overflowAllowancePoints - used,
         overflowUsagePoints: Math.max(0, used - area.capacityPoints),
-        overridden: area.capacityOverridden || area.overflowOverridden,
-        capacityOverridden: area.capacityOverridden,
-        overflowOverridden: area.overflowOverridden,
       };
     }),
+    appointments,
   };
 }
 
+async function validateEventInput(db: D1Database, input: DropoffEventInput, isNew: boolean) {
+  const errors: string[] = [];
+  if (!isIsoDate(input.date)) errors.push("Choose a valid drop-off date.");
+  if (isNew && input.date < today()) errors.push("New Drop-Off Events must be today or later.");
+  if (!Number.isFinite(input.dailyCapacityPoints) || input.dailyCapacityPoints < 0) errors.push("Daily intake capacity must be non-negative.");
+  const areas = await getAreaDefaults(db);
+  const validAreaIds = new Set(areas.map((area) => area.id));
+  const submittedIds = new Set(input.areas.map((area) => area.itemAreaId));
+  if (submittedIds.size !== areas.length || [...submittedIds].some((id) => !validAreaIds.has(id))) {
+    errors.push("Provide capacity and overflow values for every active storage area.");
+  }
+  if (input.areas.some((area) => !Number.isFinite(area.capacityPoints) || area.capacityPoints < 0 || !Number.isFinite(area.overflowAllowancePoints) || area.overflowAllowancePoints < 0)) {
+    errors.push("Storage capacities and overflow allowances must be non-negative.");
+  }
+  return errors;
+}
+
 async function getAppointmentsForDate(db: D1Database, date: string): Promise<ScheduledAppointment[]> {
-  const { results } = await db
-    .prepare(
-      `SELECT
-        a.id,
-        a.appointment_time AS time,
-        COALESCE(NULLIF(TRIM(u.first_name || ' ' || u.last_name), ''), u.email) AS customer,
-        dt.name AS loadType,
-        dt.capacity_points AS capacityPoints,
-        a.status
-       FROM appointments a
-       JOIN users u ON u.id = a.user_id
-       JOIN dropoff_types dt ON dt.id = a.dropoff_type_id
-       WHERE a.appointment_date = ?
-       ORDER BY a.appointment_time, a.id`,
-    )
-    .bind(date)
-    .all<ScheduledAppointment>();
+  const { results } = await db.prepare(
+    `SELECT appointment.id, appointment.appointment_time AS time,
+            COALESCE(NULLIF(TRIM(user.first_name || ' ' || user.last_name), ''), user.email) AS customer,
+            type.name AS loadType, type.capacity_points AS capacityPoints, appointment.status
+     FROM appointments appointment
+     JOIN users user ON user.id = appointment.user_id
+     JOIN dropoff_types type ON type.id = appointment.dropoff_type_id
+     WHERE appointment.appointment_date = ?
+     ORDER BY appointment.appointment_time, appointment.id`,
+  ).bind(date).all<ScheduledAppointment>();
   return results;
 }
 
@@ -340,38 +313,18 @@ async function getDefaultDailyCapacity(db: D1Database) {
 }
 
 async function getAreaDefaults(db: D1Database): Promise<CapacityAreaDefaults[]> {
-  const { results } = await db
-    .prepare(
-      `SELECT id, name, normal_capacity_points AS normalCapacityPoints,
-              overflow_allowance_points AS overflowAllowancePoints
-       FROM item_areas WHERE active = 1 ORDER BY display_order, name`,
-    )
-    .all<CapacityAreaDefaults>();
+  const { results } = await db.prepare(
+    `SELECT id, name, normal_capacity_points AS normalCapacityPoints,
+            overflow_allowance_points AS overflowAllowancePoints
+     FROM item_areas WHERE active = 1 ORDER BY display_order, name`,
+  ).all<CapacityAreaDefaults>();
   return results;
-}
-
-function validateOverrideInput(input: {
-  date: string;
-  dailyCapacityOverride: number | null;
-  areas: Array<{ capacityOverride: number | null; overflowOverride: number | null }>;
-}) {
-  const errors: string[] = [];
-  if (!isIsoDate(input.date)) errors.push("Choose a valid date.");
-  if (input.dailyCapacityOverride !== null && (!Number.isFinite(input.dailyCapacityOverride) || input.dailyCapacityOverride < 0)) errors.push("Daily capacity must be non-negative.");
-  if (input.areas.some((area) => (area.capacityOverride !== null && (!Number.isFinite(area.capacityOverride) || area.capacityOverride < 0)) || (area.overflowOverride !== null && (!Number.isFinite(area.overflowOverride) || area.overflowOverride < 0)))) errors.push("Storage capacities and overflow allowances must be non-negative.");
-  return errors;
 }
 
 function isIsoDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00Z`);
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
-}
-
-function addDays(date: string, days: number) {
-  const value = new Date(`${date}T00:00:00Z`);
-  value.setUTCDate(value.getUTCDate() + days);
-  return value.toISOString().slice(0, 10);
 }
 
 function today() {

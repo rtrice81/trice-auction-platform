@@ -3,123 +3,45 @@ import { data, Form, Link } from "react-router";
 import type { Route } from "./+types/admin.schedule";
 import { requireRole } from "../services/auth.server";
 import {
-  createDropoffDate,
-  deleteUnusedFutureDropoffDate,
-  getScheduleOverview,
-  resetDateCapacityOverrides,
-  saveDateCapacityOverrides,
+  deleteDropoffEvent,
+  getDropoffEvents,
+  setDropoffEventOpen,
   type ScheduleResult,
 } from "../services/schedule-management.server";
 
 const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
 
-export function meta({}: Route.MetaArgs) {
-  return [{ title: "Scheduling Calendar | Trice Auctions" }];
+export function meta() {
+  return [{ title: "Drop-Off Events | Trice Auctions" }];
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
   await requireRole(request, env.trice_auction_db, runtime, "admin");
-  const requestedDate = new URL(request.url).searchParams.get("date") ?? "";
-  return getScheduleOverview(env.trice_auction_db, isIsoDate(requestedDate) ? requestedDate : today());
+  return { events: await getDropoffEvents(env.trice_auction_db) };
 }
 
 export async function action({ request }: Route.ActionArgs) {
   await requireRole(request, env.trice_auction_db, runtime, "admin");
   const form = await request.formData();
-  const date = String(form.get("date") ?? "");
+  const eventId = Number(form.get("eventId"));
   const intent = String(form.get("intent") ?? "");
   let result: ScheduleResult;
-  if (intent === "create-date") {
-    result = await createDropoffDate(env.trice_auction_db, {
-      date,
-      isOpen: form.get("isOpen") === "true",
-      initializeWithDefaults: form.get("initializeWithDefaults") === "true",
-      note: String(form.get("note") ?? ""),
-    });
-  } else if (intent === "save-date") {
-    const areaIds = Array.from(form.keys())
-      .filter((key) => key.startsWith("area-") && key.endsWith("-capacity"))
-      .map((key) => Number(key.slice("area-".length, -"-capacity".length)));
-    result = await saveDateCapacityOverrides(env.trice_auction_db, {
-      date,
-      isOpen: form.get("isOpen") === "true",
-      dailyCapacityOverride: optionalNumber(form, "dailyCapacityOverride"),
-      note: String(form.get("note") ?? ""),
-      areas: areaIds.map((itemAreaId) => ({
-        itemAreaId,
-        capacityOverride: optionalNumber(form, `area-${itemAreaId}-capacity`),
-        overflowOverride: optionalNumber(form, `area-${itemAreaId}-overflow`),
-      })),
-    });
-  } else if (intent === "reset-date") {
-    result = await resetDateCapacityOverrides(env.trice_auction_db, date);
-  } else if (intent === "delete-date") {
-    result = await deleteUnusedFutureDropoffDate(env.trice_auction_db, date);
-  } else {
-    result = { ok: false, errors: ["Unknown scheduling action."] };
-  }
+  if (!Number.isInteger(eventId) || eventId < 1) result = { ok: false, errors: ["Choose a valid Drop-Off Event."] };
+  else if (intent === "open" || intent === "close") result = await setDropoffEventOpen(env.trice_auction_db, eventId, intent === "open");
+  else if (intent === "delete") result = await deleteDropoffEvent(env.trice_auction_db, eventId);
+  else result = { ok: false, errors: ["Unknown event action."] };
   return data(result, { status: result.ok ? 200 : 400 });
 }
 
 export default function AdminSchedule({ loaderData, actionData }: Route.ComponentProps) {
-  const selected = loaderData.selected;
   return (
     <main className="min-h-screen bg-stone-50 text-stone-900">
       <div className="mx-auto max-w-7xl px-6 py-12">
-        <header className="mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-stone-200 pb-8">
-          <div>
-            <p className="text-sm font-semibold tracking-[0.18em] text-amber-700 uppercase">Trice Auctions · Administration</p>
-            <h1 className="mt-2 text-4xl font-bold">Scheduling calendar</h1>
-            <p className="mt-2 text-stone-600">Operational capacity, bookings, and date-specific overrides.</p>
-          </div>
-          <div className="flex gap-4 text-sm font-semibold text-amber-800"><Link to="/admin/users">Users</Link><Link to="/admin/capacity">Capacity settings</Link></div>
-        </header>
-
-        {actionData?.ok ? <Notice kind="success">{actionData.message}</Notice> : null}
-        {actionData && !actionData.ok ? <Notice kind="error">{actionData.errors.join(" ")}</Notice> : null}
-
-        <Form method="get" className="mb-6 flex gap-3"><input name="date" type="date" defaultValue={loaderData.selectedDate} className="rounded border border-stone-300 bg-white px-3 py-2" /><button className="rounded bg-stone-900 px-4 py-2 font-semibold text-white">View date</button></Form>
-
-        {!selected.exists ? (
-          <section aria-labelledby="create-date-heading" className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
-            <h2 id="create-date-heading" className="text-2xl font-bold">{selected.date} is not configured</h2>
-            <p className="mt-2 text-sm text-stone-700">Dates are unavailable until an administrator explicitly creates them. Current global capacity settings can be used as the starting values.</p>
-            <Form method="post" className="mt-5 grid gap-4 md:grid-cols-2">
-              <input type="hidden" name="intent" value="create-date" />
-              <input type="hidden" name="date" value={selected.date} />
-              <label className="block text-sm font-semibold">Booking status<select name="isOpen" defaultValue="true" className="mt-1 block w-full rounded border border-stone-300 bg-white p-2"><option value="true">Open for bookings</option><option value="false">Closed for bookings</option></select></label>
-              <label className="flex items-center gap-2 self-end text-sm"><input type="checkbox" name="initializeWithDefaults" value="true" />Initialize date-specific capacities from current global defaults</label>
-              <label className="block text-sm font-semibold md:col-span-2">Admin note / reason <span className="font-normal text-stone-600">(optional)</span><textarea name="note" className="mt-1 block w-full rounded border border-stone-300 bg-white p-2" /></label>
-              <div className="md:col-span-2"><button className="rounded bg-stone-900 px-4 py-2 font-semibold text-white">Create date</button></div>
-            </Form>
-          </section>
-        ) : (
-        <section aria-labelledby="date-overrides-heading" className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
-          <h2 id="date-overrides-heading" className="text-2xl font-bold">{selected.date} capacity controls</h2>
-          <p className="mt-2 text-sm text-stone-700">Effective values are shown below. Leave a capacity field blank to use its global default; save an explanation for any override or closure.</p>
-          <Form method="post" className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <input type="hidden" name="intent" value="save-date" />
-            <input type="hidden" name="date" value={selected.date} />
-            <label className="block text-sm font-semibold">Booking status<select name="isOpen" defaultValue={String(selected.isOpen)} className="mt-1 block w-full rounded border border-stone-300 bg-white p-2"><option value="true">Open for bookings</option><option value="false">Closed for bookings</option></select></label>
-            <label className="block text-sm font-semibold">Daily capacity override<input name="dailyCapacityOverride" type="number" min="0" step="0.01" defaultValue={selected.dailyCapacityOverridden ? selected.dailyCapacityPoints : ""} placeholder={`Default: ${selected.dailyCapacityPoints}`} className="mt-1 block w-full rounded border border-stone-300 bg-white p-2" /></label>
-            <label className="block text-sm font-semibold md:col-span-2">Admin note / reason<textarea name="note" defaultValue={selected.note ?? ""} className="mt-1 block w-full rounded border border-stone-300 bg-white p-2" /></label>
-            {selected.areas.map((area) => <fieldset key={area.id} className="rounded border border-amber-200 bg-white p-3"><legend className="px-1 text-sm font-bold">{area.name} {area.overridden ? "(override active)" : "(global default)"}</legend><label className="mt-2 block text-xs font-semibold">Capacity override<input name={`area-${area.id}-capacity`} type="number" min="0" step="0.01" defaultValue={area.capacityOverridden ? area.capacityPoints : ""} placeholder={`Default/effective: ${area.capacityPoints}`} className="mt-1 block w-full rounded border border-stone-300 p-2" /></label><label className="mt-2 block text-xs font-semibold">Overflow override<input name={`area-${area.id}-overflow`} type="number" min="0" step="0.01" defaultValue={area.overflowOverridden ? area.overflowAllowancePoints : ""} placeholder={`Default/effective: ${area.overflowAllowancePoints}`} className="mt-1 block w-full rounded border border-stone-300 p-2" /></label></fieldset>)}
-            <div className="flex gap-3 md:col-span-2 xl:col-span-4"><button className="rounded bg-stone-900 px-4 py-2 font-semibold text-white">Save date settings</button></div>
-          </Form>
-          <Form method="post" className="mt-3"><input type="hidden" name="intent" value="reset-date" /><input type="hidden" name="date" value={selected.date} /><button className="text-sm font-semibold text-amber-900 underline">Reset this date to global defaults</button></Form>
-          {selected.scheduledAppointments === 0 && selected.date > today() ? <Form method="post" className="mt-3"><input type="hidden" name="intent" value="delete-date" /><input type="hidden" name="date" value={selected.date} /><button className="text-sm font-semibold text-red-800 underline">Remove this unused future date</button></Form> : null}
-        </section>
-        )}
-
-        <section className="mt-8" aria-labelledby="selected-appointments-heading"><h2 id="selected-appointments-heading" className="text-2xl font-bold">Appointments on {selected.date}</h2>{loaderData.selectedAppointments.length === 0 ? <p className="mt-3 text-stone-600">No appointments are scheduled for this date.</p> : <ul className="mt-3 divide-y rounded border bg-white">{loaderData.selectedAppointments.map((appointment) => <li key={appointment.id} className="flex flex-wrap justify-between gap-2 p-3"><span>{appointment.time || "Time TBD"} · {appointment.customer}</span><span>{appointment.loadType} · {appointment.capacityPoints} points · {appointment.status}</span></li>)}</ul>}</section>
-
-        <section className="mt-10" aria-labelledby="schedule-days-heading"><h2 id="schedule-days-heading" className="text-2xl font-bold">Upcoming date operations</h2><div className="mt-4 grid gap-4 lg:grid-cols-2">{loaderData.days.map((day) => <article key={day.date} className="rounded-xl border bg-white p-5"><div className="flex justify-between gap-3"><Link to={`/admin/schedule?date=${day.date}`} className="font-bold text-amber-800">{day.date}</Link><span className={day.isOpen ? "font-semibold text-emerald-700" : "font-semibold text-red-700"}>{day.exists ? (day.isOpen ? "Open" : "Closed") : "Unconfigured"}</span></div>{day.exists ? <><p className="mt-2 text-sm">{day.scheduledAppointments} scheduled · Daily: {day.usedPoints} / {day.dailyCapacityPoints} used · {day.remainingPoints} remaining {day.dailyCapacityOverridden ? "(override)" : "(global default)"}</p>{day.note ? <p className="mt-2 text-xs text-stone-600">Note: {day.note}</p> : null}<ul className="mt-3 space-y-1 text-sm">{day.areas.map((area) => <li key={area.id}>{area.name}: {area.usedPoints} / {area.capacityPoints} available, {area.remainingPoints} remaining{area.overflowAllowancePoints > 0 ? ` · overflow ${area.overflowUsagePoints} / ${area.overflowAllowancePoints}` : ""}{area.overridden ? " (override)" : ""}</li>)}</ul></> : <p className="mt-2 text-sm text-stone-600">Unavailable for new bookings. Create and open this date to make it bookable.</p>}</article>)}</div></section>
+        <header className="flex flex-wrap items-end justify-between gap-5 border-b border-stone-200 pb-8"><div><p className="text-sm font-semibold tracking-[0.18em] text-amber-700 uppercase">Trice Auctions · Administration</p><h1 className="mt-2 text-4xl font-bold">Drop-Off Events</h1><p className="mt-2 text-stone-600">Only saved, open future/current events are visible to customers.</p></div><div className="flex flex-wrap gap-4"><Link to="/admin/users" className="font-semibold text-amber-800">Users</Link><Link to="/admin/capacity" className="font-semibold text-amber-800">Capacity settings</Link><Link to="/admin/schedule/new" className="rounded bg-stone-900 px-4 py-2 font-semibold text-white">New Drop-Off Event</Link></div></header>
+        {actionData?.ok ? <p className="mt-5 rounded border border-emerald-200 bg-emerald-50 p-3" role="status">{actionData.message}</p> : null}
+        {actionData && !actionData.ok ? <p className="mt-5 rounded border border-red-200 bg-red-50 p-3" role="alert">{actionData.errors.join(" ")}</p> : null}
+        {loaderData.events.length === 0 ? <section className="mt-8 rounded border border-dashed bg-white p-8"><h2 className="text-xl font-bold">No Drop-Off Events yet</h2><p className="mt-2 text-stone-600">Create and save an event before any customer can select a date.</p><Link to="/admin/schedule/new" className="mt-4 inline-block font-semibold text-amber-800 underline">Create the first event</Link></section> : <section className="mt-8 grid gap-5 lg:grid-cols-2">{loaderData.events.map((event) => <article key={event.id} className="rounded-xl border bg-white p-5 shadow-sm"><div className="flex flex-wrap justify-between gap-3"><div><h2 className="text-xl font-bold">{event.eventName || "Drop-Off Event"}</h2><p className="text-stone-600">{event.date}</p></div><span className={event.isOpen ? "font-semibold text-emerald-700" : "font-semibold text-red-700"}>{event.isOpen ? "Open" : "Closed"}</span></div><p className="mt-4 text-sm">{event.scheduledAppointments} scheduled · Daily {event.usedPoints} / {event.dailyCapacityPoints} used · {event.remainingPoints} remaining</p><ul className="mt-3 space-y-1 text-sm">{event.areas.map((area) => <li key={area.itemAreaId}>{area.name}: {area.usedPoints} / {area.capacityPoints} used · {area.remainingPoints} remaining{area.overflowAllowancePoints > 0 ? ` · overflow ${area.overflowUsagePoints} / ${area.overflowAllowancePoints}` : ""}</li>)}</ul>{event.note ? <p className="mt-3 text-sm text-stone-600">Note: {event.note}</p> : null}<div className="mt-5 flex flex-wrap gap-4"><Link to={`/admin/schedule/${event.id}`} className="font-semibold text-amber-800 underline">View / Edit</Link><Form method="post"><input type="hidden" name="eventId" value={event.id} /><input type="hidden" name="intent" value={event.isOpen ? "close" : "open"} /><button className="font-semibold underline">{event.isOpen ? "Close" : "Open"}</button></Form>{event.appointments.length === 0 ? <Form method="post"><input type="hidden" name="eventId" value={event.id} /><input type="hidden" name="intent" value="delete" /><button className="font-semibold text-red-800 underline">Delete</button></Form> : null}</div></article>)}</section>}
       </div>
     </main>
   );
 }
-
-function optionalNumber(form: FormData, key: string) { const value = String(form.get(key) ?? "").trim(); return value === "" ? null : Number(value); }
-function today() { return new Date().toISOString().slice(0, 10); }
-function isIsoDate(value: string) { return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(new Date(`${value}T00:00:00Z`).getTime()); }
-function Notice({ kind, children }: { kind: "success" | "error"; children: React.ReactNode }) { return <p className={`mb-5 rounded border p-3 ${kind === "success" ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50"}`} role={kind === "success" ? "status" : "alert"}>{children}</p>; }

@@ -27,12 +27,19 @@ export async function getEffectiveDateCapacity(
 ): Promise<EffectiveDateCapacity | null> {
   const day = await db
     .prepare(
-      `SELECT id, is_open AS isOpen, notes, daily_capacity_override AS dailyCapacityOverride
+      `SELECT id, is_open AS isOpen, notes, capacity_points AS capacityPoints,
+              daily_capacity_override AS dailyCapacityOverride
        FROM dropoff_days
        WHERE dropoff_date = ?`,
     )
     .bind(date)
-    .first<{ id: number; isOpen: number; notes: string | null; dailyCapacityOverride: number | null }>();
+    .first<{
+      id: number;
+      isOpen: number;
+      notes: string | null;
+      capacityPoints: number;
+      dailyCapacityOverride: number | null;
+    }>();
   if (!day) return null;
 
   const overrides = await db
@@ -56,7 +63,7 @@ export async function getEffectiveDateCapacity(
     date,
     isOpen: day.isOpen === 1,
     note: day.notes,
-    dailyCapacityPoints: day.dailyCapacityOverride ?? defaultDailyCapacityPoints,
+    dailyCapacityPoints: day.dailyCapacityOverride ?? day.capacityPoints ?? defaultDailyCapacityPoints,
     dailyCapacityOverridden: day.dailyCapacityOverride !== null && day.dailyCapacityOverride !== undefined,
     areas: areas.map((area) => {
       const override = byArea.get(area.id);

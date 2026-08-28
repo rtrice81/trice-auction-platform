@@ -19,6 +19,7 @@ export type DropoffType = {
 
 export type AvailableDropoffDate = {
   date: string;
+  eventName: string | null;
 };
 
 export type BookingInput = {
@@ -109,7 +110,7 @@ export async function getBookingOptions(db: D1Database) {
        ORDER BY display_order ASC, name ASC`,
     ),
     db.prepare(
-      `SELECT dropoff_date AS date
+      `SELECT dropoff_date AS date, event_name AS eventName
        FROM dropoff_days
        WHERE is_open = 1 AND dropoff_date >= date('now')
        ORDER BY dropoff_date ASC`,

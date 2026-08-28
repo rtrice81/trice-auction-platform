@@ -83,7 +83,7 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
                 Preferred drop-off date
                 <select required name="appointmentDate" disabled={loaderData.availableDates.length === 0} className="mt-2 block w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal outline-none focus:border-amber-600 focus:ring-2 focus:ring-amber-100">
                   <option value="">{loaderData.availableDates.length === 0 ? "No drop-off dates are currently available" : "Choose an available date"}</option>
-                  {loaderData.availableDates.map((date) => <option key={date.date} value={date.date}>{date.date}</option>)}
+                  {loaderData.availableDates.map((date) => <option key={date.date} value={date.date}>{date.date}{date.eventName ? ` — ${date.eventName}` : ""}</option>)}
                 </select>
               </label>
             </div>

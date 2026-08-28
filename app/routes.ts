@@ -13,4 +13,6 @@ export default [
   route("admin/capacity", "routes/admin.capacity.tsx"),
   route("admin/users", "routes/admin.users.tsx"),
   route("admin/schedule", "routes/admin.schedule.tsx"),
+  route("admin/schedule/new", "routes/admin.schedule.new.tsx"),
+  route("admin/schedule/:id", "routes/admin.schedule.detail.tsx"),
 ] satisfies RouteConfig;
