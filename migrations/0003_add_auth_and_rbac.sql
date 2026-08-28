@@ -51,5 +51,4 @@ CREATE TABLE verification (
 
 CREATE INDEX idx_session_user_id ON session(userId);
 CREATE INDEX idx_account_user_id ON account(userId);
-CREATE INDEX idx_users_auth_user_id ON users(auth_user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_auth_user_id ON users(auth_user_id);
