@@ -3,6 +3,8 @@ import { data, Form, Link } from "react-router";
 import type { Route } from "./+types/admin.schedule";
 import { requireRole } from "../services/auth.server";
 import {
+  createDropoffDate,
+  deleteUnusedFutureDropoffDate,
   getScheduleOverview,
   resetDateCapacityOverrides,
   saveDateCapacityOverrides,
@@ -27,7 +29,14 @@ export async function action({ request }: Route.ActionArgs) {
   const date = String(form.get("date") ?? "");
   const intent = String(form.get("intent") ?? "");
   let result: ScheduleResult;
-  if (intent === "save-date") {
+  if (intent === "create-date") {
+    result = await createDropoffDate(env.trice_auction_db, {
+      date,
+      isOpen: form.get("isOpen") === "true",
+      initializeWithDefaults: form.get("initializeWithDefaults") === "true",
+      note: String(form.get("note") ?? ""),
+    });
+  } else if (intent === "save-date") {
     const areaIds = Array.from(form.keys())
       .filter((key) => key.startsWith("area-") && key.endsWith("-capacity"))
       .map((key) => Number(key.slice("area-".length, -"-capacity".length)));
@@ -44,6 +53,8 @@ export async function action({ request }: Route.ActionArgs) {
     });
   } else if (intent === "reset-date") {
     result = await resetDateCapacityOverrides(env.trice_auction_db, date);
+  } else if (intent === "delete-date") {
+    result = await deleteUnusedFutureDropoffDate(env.trice_auction_db, date);
   } else {
     result = { ok: false, errors: ["Unknown scheduling action."] };
   }
@@ -69,6 +80,20 @@ export default function AdminSchedule({ loaderData, actionData }: Route.Componen
 
         <Form method="get" className="mb-6 flex gap-3"><input name="date" type="date" defaultValue={loaderData.selectedDate} className="rounded border border-stone-300 bg-white px-3 py-2" /><button className="rounded bg-stone-900 px-4 py-2 font-semibold text-white">View date</button></Form>
 
+        {!selected.exists ? (
+          <section aria-labelledby="create-date-heading" className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
+            <h2 id="create-date-heading" className="text-2xl font-bold">{selected.date} is not configured</h2>
+            <p className="mt-2 text-sm text-stone-700">Dates are unavailable until an administrator explicitly creates them. Current global capacity settings can be used as the starting values.</p>
+            <Form method="post" className="mt-5 grid gap-4 md:grid-cols-2">
+              <input type="hidden" name="intent" value="create-date" />
+              <input type="hidden" name="date" value={selected.date} />
+              <label className="block text-sm font-semibold">Booking status<select name="isOpen" defaultValue="true" className="mt-1 block w-full rounded border border-stone-300 bg-white p-2"><option value="true">Open for bookings</option><option value="false">Closed for bookings</option></select></label>
+              <label className="flex items-center gap-2 self-end text-sm"><input type="checkbox" name="initializeWithDefaults" value="true" />Initialize date-specific capacities from current global defaults</label>
+              <label className="block text-sm font-semibold md:col-span-2">Admin note / reason <span className="font-normal text-stone-600">(optional)</span><textarea name="note" className="mt-1 block w-full rounded border border-stone-300 bg-white p-2" /></label>
+              <div className="md:col-span-2"><button className="rounded bg-stone-900 px-4 py-2 font-semibold text-white">Create date</button></div>
+            </Form>
+          </section>
+        ) : (
         <section aria-labelledby="date-overrides-heading" className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
           <h2 id="date-overrides-heading" className="text-2xl font-bold">{selected.date} capacity controls</h2>
           <p className="mt-2 text-sm text-stone-700">Effective values are shown below. Leave a capacity field blank to use its global default; save an explanation for any override or closure.</p>
@@ -82,11 +107,13 @@ export default function AdminSchedule({ loaderData, actionData }: Route.Componen
             <div className="flex gap-3 md:col-span-2 xl:col-span-4"><button className="rounded bg-stone-900 px-4 py-2 font-semibold text-white">Save date settings</button></div>
           </Form>
           <Form method="post" className="mt-3"><input type="hidden" name="intent" value="reset-date" /><input type="hidden" name="date" value={selected.date} /><button className="text-sm font-semibold text-amber-900 underline">Reset this date to global defaults</button></Form>
+          {selected.scheduledAppointments === 0 && selected.date > today() ? <Form method="post" className="mt-3"><input type="hidden" name="intent" value="delete-date" /><input type="hidden" name="date" value={selected.date} /><button className="text-sm font-semibold text-red-800 underline">Remove this unused future date</button></Form> : null}
         </section>
+        )}
 
         <section className="mt-8" aria-labelledby="selected-appointments-heading"><h2 id="selected-appointments-heading" className="text-2xl font-bold">Appointments on {selected.date}</h2>{loaderData.selectedAppointments.length === 0 ? <p className="mt-3 text-stone-600">No appointments are scheduled for this date.</p> : <ul className="mt-3 divide-y rounded border bg-white">{loaderData.selectedAppointments.map((appointment) => <li key={appointment.id} className="flex flex-wrap justify-between gap-2 p-3"><span>{appointment.time || "Time TBD"} · {appointment.customer}</span><span>{appointment.loadType} · {appointment.capacityPoints} points · {appointment.status}</span></li>)}</ul>}</section>
 
-        <section className="mt-10" aria-labelledby="schedule-days-heading"><h2 id="schedule-days-heading" className="text-2xl font-bold">Upcoming date operations</h2><div className="mt-4 grid gap-4 lg:grid-cols-2">{loaderData.days.map((day) => <article key={day.date} className="rounded-xl border bg-white p-5"><div className="flex justify-between gap-3"><Link to={`/admin/schedule?date=${day.date}`} className="font-bold text-amber-800">{day.date}</Link><span className={day.isOpen ? "font-semibold text-emerald-700" : "font-semibold text-red-700"}>{day.isOpen ? "Open" : "Closed"}</span></div><p className="mt-2 text-sm">{day.scheduledAppointments} scheduled · Daily: {day.usedPoints} / {day.dailyCapacityPoints} used · {day.remainingPoints} remaining {day.dailyCapacityOverridden ? "(override)" : "(global default)"}</p>{day.note ? <p className="mt-2 text-xs text-stone-600">Note: {day.note}</p> : null}<ul className="mt-3 space-y-1 text-sm">{day.areas.map((area) => <li key={area.id}>{area.name}: {area.usedPoints} / {area.capacityPoints} available, {area.remainingPoints} remaining{area.overflowAllowancePoints > 0 ? ` · overflow ${area.overflowUsagePoints} / ${area.overflowAllowancePoints}` : ""}{area.overridden ? " (override)" : ""}</li>)}</ul></article>)}</div></section>
+        <section className="mt-10" aria-labelledby="schedule-days-heading"><h2 id="schedule-days-heading" className="text-2xl font-bold">Upcoming date operations</h2><div className="mt-4 grid gap-4 lg:grid-cols-2">{loaderData.days.map((day) => <article key={day.date} className="rounded-xl border bg-white p-5"><div className="flex justify-between gap-3"><Link to={`/admin/schedule?date=${day.date}`} className="font-bold text-amber-800">{day.date}</Link><span className={day.isOpen ? "font-semibold text-emerald-700" : "font-semibold text-red-700"}>{day.exists ? (day.isOpen ? "Open" : "Closed") : "Unconfigured"}</span></div>{day.exists ? <><p className="mt-2 text-sm">{day.scheduledAppointments} scheduled · Daily: {day.usedPoints} / {day.dailyCapacityPoints} used · {day.remainingPoints} remaining {day.dailyCapacityOverridden ? "(override)" : "(global default)"}</p>{day.note ? <p className="mt-2 text-xs text-stone-600">Note: {day.note}</p> : null}<ul className="mt-3 space-y-1 text-sm">{day.areas.map((area) => <li key={area.id}>{area.name}: {area.usedPoints} / {area.capacityPoints} available, {area.remainingPoints} remaining{area.overflowAllowancePoints > 0 ? ` · overflow ${area.overflowUsagePoints} / ${area.overflowAllowancePoints}` : ""}{area.overridden ? " (override)" : ""}</li>)}</ul></> : <p className="mt-2 text-sm text-stone-600">Unavailable for new bookings. Create and open this date to make it bookable.</p>}</article>)}</div></section>
       </div>
     </main>
   );

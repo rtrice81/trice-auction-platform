@@ -1,4 +1,4 @@
-import { ensureDropoffDay, getEffectiveDateCapacity, type CapacityAreaDefaults } from "./date-capacity.server";
+import { getEffectiveDateCapacity, type CapacityAreaDefaults } from "./date-capacity.server";
 
 export type ScheduleResult =
   | { ok: true; message: string }
@@ -6,6 +6,7 @@ export type ScheduleResult =
 
 export type ScheduleDay = {
   date: string;
+  exists: boolean;
   isOpen: boolean;
   note: string | null;
   dailyCapacityPoints: number;
@@ -56,6 +57,85 @@ export async function getScheduleOverview(db: D1Database, selectedDate: string) 
   return { selectedDate, days, selected: days.find((day) => day.date === selectedDate)!, selectedAppointments };
 }
 
+export async function createDropoffDate(
+  db: D1Database,
+  input: { date: string; isOpen: boolean; initializeWithDefaults: boolean; note: string },
+): Promise<ScheduleResult> {
+  if (!isIsoDate(input.date)) return { ok: false, errors: ["Choose a valid date."] };
+  if (input.date < today()) return { ok: false, errors: ["New drop-off dates must be today or later."] };
+
+  const existing = await db
+    .prepare("SELECT id FROM dropoff_days WHERE dropoff_date = ?")
+    .bind(input.date)
+    .first<{ id: number }>();
+  if (existing) return { ok: false, errors: ["This drop-off date has already been configured."] };
+
+  const [defaultDailyCapacity, areas] = await Promise.all([
+    getDefaultDailyCapacity(db),
+    input.initializeWithDefaults ? getAreaDefaults(db) : Promise.resolve([]),
+  ]);
+  const day = await db
+    .prepare(
+      `INSERT INTO dropoff_days (
+         dropoff_date, capacity_points, is_open, notes, daily_capacity_override
+       ) VALUES (?, ?, ?, ?, ?)
+       RETURNING id`,
+    )
+    .bind(
+      input.date,
+      defaultDailyCapacity,
+      input.isOpen ? 1 : 0,
+      input.note.trim() || null,
+      input.initializeWithDefaults ? defaultDailyCapacity : null,
+    )
+    .first<{ id: number }>();
+  if (!day) return { ok: false, errors: ["The drop-off date could not be created."] };
+
+  if (input.initializeWithDefaults) {
+    await db.batch(
+      areas.map((area) =>
+        db
+          .prepare(
+            `INSERT INTO dropoff_day_area_overrides
+              (dropoff_day_id, item_area_id, capacity_points_override, overflow_allowance_points_override)
+             VALUES (?, ?, ?, ?)`,
+          )
+          .bind(day.id, area.id, area.normalCapacityPoints, area.overflowAllowancePoints),
+      ),
+    );
+  }
+
+  return {
+    ok: true,
+    message: input.isOpen
+      ? "Drop-off date created and opened for bookings."
+      : "Drop-off date created and kept closed for bookings.",
+  };
+}
+
+export async function deleteUnusedFutureDropoffDate(
+  db: D1Database,
+  date: string,
+): Promise<ScheduleResult> {
+  if (!isIsoDate(date)) return { ok: false, errors: ["Choose a valid date."] };
+  if (date <= today()) return { ok: false, errors: ["Only unused future dates can be removed. Close this date instead."] };
+
+  const [day, appointmentCount] = await Promise.all([
+    db.prepare("SELECT id FROM dropoff_days WHERE dropoff_date = ?").bind(date).first<{ id: number }>(),
+    db.prepare("SELECT COUNT(*) AS count FROM appointments WHERE appointment_date = ?").bind(date).first<{ count: number }>(),
+  ]);
+  if (!day) return { ok: false, errors: ["This drop-off date has not been configured."] };
+  if ((appointmentCount?.count ?? 0) > 0) {
+    return { ok: false, errors: ["This date has appointments and cannot be removed. Close it instead."] };
+  }
+
+  await db.batch([
+    db.prepare("DELETE FROM dropoff_day_area_overrides WHERE dropoff_day_id = ?").bind(day.id),
+    db.prepare("DELETE FROM dropoff_days WHERE id = ?").bind(day.id),
+  ]);
+  return { ok: true, message: "Unused future drop-off date removed." };
+}
+
 export async function saveDateCapacityOverrides(
   db: D1Database,
   input: {
@@ -80,9 +160,8 @@ export async function saveDateCapacityOverrides(
     return { ok: false, errors: ["Add an admin note explaining the date-specific change."] };
   }
 
-  await ensureDropoffDay(db, input.date, defaultDailyCapacity);
   const day = await db.prepare("SELECT id FROM dropoff_days WHERE dropoff_date = ?").bind(input.date).first<{ id: number }>();
-  if (!day) return { ok: false, errors: ["The selected date could not be configured."] };
+  if (!day) return { ok: false, errors: ["Create this drop-off date before changing its capacity."] };
 
   const statements: D1PreparedStatement[] = [
     db
@@ -131,9 +210,8 @@ export async function saveDateCapacityOverrides(
 export async function resetDateCapacityOverrides(db: D1Database, date: string): Promise<ScheduleResult> {
   if (!isIsoDate(date)) return { ok: false, errors: ["Choose a valid date."] };
   const defaultDailyCapacity = await getDefaultDailyCapacity(db);
-  await ensureDropoffDay(db, date, defaultDailyCapacity);
   const day = await db.prepare("SELECT id FROM dropoff_days WHERE dropoff_date = ?").bind(date).first<{ id: number }>();
-  if (!day) return { ok: false, errors: ["The selected date could not be reset."] };
+  if (!day) return { ok: false, errors: ["Create this drop-off date before resetting it."] };
   await db.batch([
     db
       .prepare(
@@ -177,8 +255,37 @@ async function getScheduleDay(
   ]);
   const usedByArea = new Map(areaUsage.results.map((row) => [row.itemAreaId, row.usedPoints]));
   const usedPoints = summary?.usedPoints ?? 0;
+  if (!effective) {
+    return {
+      date,
+      exists: false,
+      isOpen: false,
+      note: null,
+      dailyCapacityPoints: defaultDailyCapacity,
+      dailyCapacityOverridden: false,
+      scheduledAppointments: summary?.scheduledAppointments ?? 0,
+      usedPoints,
+      remainingPoints: defaultDailyCapacity - usedPoints,
+      areas: areas.map((area) => {
+        const used = usedByArea.get(area.id) ?? 0;
+        return {
+          id: area.id,
+          name: area.name,
+          usedPoints: used,
+          capacityPoints: area.normalCapacityPoints,
+          overflowAllowancePoints: area.overflowAllowancePoints,
+          remainingPoints: area.normalCapacityPoints + area.overflowAllowancePoints - used,
+          overflowUsagePoints: Math.max(0, used - area.normalCapacityPoints),
+          overridden: false,
+          capacityOverridden: false,
+          overflowOverridden: false,
+        };
+      }),
+    };
+  }
   return {
     date,
+    exists: true,
     isOpen: effective.isOpen,
     note: effective.note,
     dailyCapacityPoints: effective.dailyCapacityPoints,
@@ -265,4 +372,8 @@ function addDays(date: string, days: number) {
   const value = new Date(`${date}T00:00:00Z`);
   value.setUTCDate(value.getUTCDate() + days);
   return value.toISOString().slice(0, 10);
+}
+
+function today() {
+  return new Date().toISOString().slice(0, 10);
 }

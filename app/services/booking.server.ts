@@ -1,8 +1,4 @@
-import {
-  ensureDropoffDay,
-  getEffectiveDateCapacity,
-  type EffectiveDateCapacity,
-} from "./date-capacity.server";
+import { getEffectiveDateCapacity, type EffectiveDateCapacity } from "./date-capacity.server";
 
 export type ItemArea = {
   id: number;
@@ -19,6 +15,10 @@ export type DropoffType = {
   id: number;
   name: string;
   capacityPoints: number;
+};
+
+export type AvailableDropoffDate = {
+  date: string;
 };
 
 export type BookingInput = {
@@ -87,7 +87,7 @@ export type BookingValidationResult =
 const ACTIVE_APPOINTMENT_STATUS = "scheduled";
 
 export async function getBookingOptions(db: D1Database) {
-  const [dropoffTypesResult, itemAreasResult] = await db.batch([
+  const [dropoffTypesResult, itemAreasResult, datesResult] = await db.batch([
     db.prepare(
       `SELECT id, name, capacity_points AS capacityPoints
        FROM dropoff_types
@@ -108,11 +108,18 @@ export async function getBookingOptions(db: D1Database) {
        WHERE active = 1
        ORDER BY display_order ASC, name ASC`,
     ),
+    db.prepare(
+      `SELECT dropoff_date AS date
+       FROM dropoff_days
+       WHERE is_open = 1 AND dropoff_date >= date('now')
+       ORDER BY dropoff_date ASC`,
+    ),
   ]);
 
   return {
     dropoffTypes: dropoffTypesResult.results as DropoffType[],
     itemAreas: itemAreasResult.results as ItemArea[],
+    availableDates: datesResult.results as AvailableDropoffDate[],
   };
 }
 
@@ -196,13 +203,17 @@ export async function validateBooking(
   const allocationErrors = validateAllocations(input.allocations, options.itemAreas);
   if (allocationErrors.length > 0) return validationFailure(allocationErrors);
 
-  await ensureDropoffDay(db, input.appointmentDate, settings.defaultDailyIntakeCapacity);
   const effectiveCapacity = await getEffectiveDateCapacity(
     db,
     input.appointmentDate,
     settings.defaultDailyIntakeCapacity,
     options.itemAreas,
   );
+  if (!effectiveCapacity) {
+    return validationFailure([
+      "This drop-off date has not been configured by an administrator.",
+    ]);
+  }
 
   const monthBounds = getMonthBounds(input.appointmentDate);
   const monthlyBookings = await db

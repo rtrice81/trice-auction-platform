@@ -81,12 +81,10 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
             <div className="grid gap-5 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm sm:grid-cols-2">
               <label className="text-sm font-semibold text-stone-800">
                 Preferred drop-off date
-                <input
-                  required
-                  type="date"
-                  name="appointmentDate"
-                  className="mt-2 block w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal outline-none focus:border-amber-600 focus:ring-2 focus:ring-amber-100"
-                />
+                <select required name="appointmentDate" disabled={loaderData.availableDates.length === 0} className="mt-2 block w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal outline-none focus:border-amber-600 focus:ring-2 focus:ring-amber-100">
+                  <option value="">{loaderData.availableDates.length === 0 ? "No drop-off dates are currently available" : "Choose an available date"}</option>
+                  {loaderData.availableDates.map((date) => <option key={date.date} value={date.date}>{date.date}</option>)}
+                </select>
               </label>
             </div>
           </section>
@@ -155,7 +153,7 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
             />
           </label>
 
-          <button type="submit" className="rounded-xl bg-stone-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-amber-700 focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2 focus-visible:outline-none">
+          <button type="submit" disabled={loaderData.availableDates.length === 0} className="rounded-xl bg-stone-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-amber-700 focus-visible:ring-2 focus:ring-amber-600 focus:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50">
             Request drop-off appointment
           </button>
         </Form>
