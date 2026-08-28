@@ -17,6 +17,8 @@ export type DropoffType = {
 
 type BookingInput = {
   userId: number;
+  appointmentId?: number;
+  appointmentTime?: string;
   appointmentDate: string;
   dropoffTypeId: number;
   description: string;
@@ -96,13 +98,15 @@ export async function createBooking(
          WHERE user_id = ?
            AND appointment_date >= ?
            AND appointment_date < ?
-           AND status = ?`,
+           AND status = ?
+           AND id != ?`,
       )
       .bind(
         input.userId,
         monthBounds.start,
         monthBounds.end,
         ACTIVE_APPOINTMENT_STATUS,
+        input.appointmentId ?? 0,
       )
       .first<{ count: number }>();
 
@@ -128,9 +132,17 @@ export async function createBooking(
     dropoffType,
     options.itemAreas,
     input.allocations,
+    input.appointmentId,
   );
   if (capacityErrors.length > 0) return { ok: false, errors: capacityErrors };
 
+  if (input.appointmentId) {
+    await db.prepare("DELETE FROM appointment_area_allocations WHERE appointment_id = ?").bind(input.appointmentId).run();
+    await db.prepare("UPDATE appointments SET appointment_date=?, appointment_time=?, dropoff_type_id=?, description=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND status='scheduled'").bind(input.appointmentDate, input.appointmentTime || null, dropoffType.id, input.description || null, input.appointmentId, input.userId).run();
+    const allocationStatements = input.allocations.map((allocation) => db.prepare("INSERT INTO appointment_area_allocations (appointment_id,item_area_id,allocation_percent,capacity_points) VALUES (?,?,?,?)").bind(input.appointmentId, allocation.itemAreaId, allocation.percentage, calculateAllocatedPoints(dropoffType.capacityPoints, allocation.percentage)));
+    await db.batch(allocationStatements);
+    return { ok: true, appointmentId: input.appointmentId, message: "Your appointment has been updated." };
+  }
   const appointment = await db
     .prepare(
       `INSERT INTO appointments (
@@ -238,6 +250,7 @@ async function getCapacityErrors(
   dropoffType: DropoffType,
   itemAreas: ItemArea[],
   allocations: BookingInput["allocations"],
+  excludedAppointmentId?: number,
 ) {
   const errors: string[] = [];
   const dropoffDay = await db
@@ -253,9 +266,9 @@ async function getCapacityErrors(
       `SELECT COALESCE(SUM(dt.capacity_points), 0) AS usedPoints
        FROM appointments appointment
        JOIN dropoff_types dt ON dt.id = appointment.dropoff_type_id
-       WHERE appointment.appointment_date = ? AND appointment.status = ?`,
+       WHERE appointment.appointment_date = ? AND appointment.status = ? AND appointment.id != ?`,
     )
-    .bind(appointmentDate, ACTIVE_APPOINTMENT_STATUS)
+    .bind(appointmentDate, ACTIVE_APPOINTMENT_STATUS, excludedAppointmentId ?? 0)
     .first<{ usedPoints: number }>();
   if ((dailyUsage?.usedPoints ?? 0) + dropoffType.capacityPoints > dropoffDay.capacityPoints) {
     errors.push("This drop-off date has reached its daily intake capacity.");
@@ -267,10 +280,10 @@ async function getCapacityErrors(
               COALESCE(SUM(allocation.capacity_points), 0) AS usedPoints
        FROM appointment_area_allocations allocation
        JOIN appointments appointment ON appointment.id = allocation.appointment_id
-       WHERE appointment.appointment_date = ? AND appointment.status = ?
+       WHERE appointment.appointment_date = ? AND appointment.status = ? AND appointment.id != ?
        GROUP BY allocation.item_area_id`,
     )
-    .bind(appointmentDate, ACTIVE_APPOINTMENT_STATUS)
+    .bind(appointmentDate, ACTIVE_APPOINTMENT_STATUS, excludedAppointmentId ?? 0)
     .all<{ itemAreaId: number; usedPoints: number }>();
   const usedByArea = new Map(areaUsage.map((usage) => [usage.itemAreaId, usage.usedPoints]));
 
