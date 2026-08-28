@@ -1,4 +1,4 @@
-ALTER TABLE users ADD COLUMN auth_user_id TEXT UNIQUE;
+ALTER TABLE users ADD COLUMN auth_user_id TEXT;
 ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1));
 
 CREATE TABLE "user" (
@@ -52,3 +52,4 @@ CREATE TABLE verification (
 CREATE INDEX idx_session_user_id ON session(userId);
 CREATE INDEX idx_account_user_id ON account(userId);
 CREATE INDEX idx_users_auth_user_id ON users(auth_user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_auth_user_id ON users(auth_user_id);
