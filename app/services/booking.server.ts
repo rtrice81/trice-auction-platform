@@ -143,13 +143,14 @@ export async function createBooking(db: D1Database, input: BookingInput): Promis
   const appointment = await db
     .prepare(
       `INSERT INTO appointments (
-        user_id, appointment_date, dropoff_type_id, description, status
-      ) VALUES (?, ?, ?, ?, ?)
+        user_id, appointment_date, appointment_time, dropoff_type_id, description, status
+      ) VALUES (?, ?, ?, ?, ?, ?)
       RETURNING id`,
     )
     .bind(
       input.userId,
       input.appointmentDate,
+      input.appointmentTime || null,
       validation.dropoffType.id,
       input.description || null,
       ACTIVE_APPOINTMENT_STATUS,
@@ -188,6 +189,25 @@ export async function createBooking(db: D1Database, input: BookingInput): Promis
     appointmentId: appointment.id,
     message: "Your drop-off request has been scheduled.",
   };
+}
+
+// Used only by the manager/admin override workflow after it has revalidated
+// the request and established that every failure is explicitly overridable.
+export async function createBookingWithOverride(
+  db: D1Database,
+  input: BookingInput,
+  dropoffType: DropoffType,
+) {
+  const appointment = await db.prepare(
+    `INSERT INTO appointments (user_id, appointment_date, appointment_time, dropoff_type_id, description, status)
+     VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
+  ).bind(input.userId, input.appointmentDate, input.appointmentTime || null, dropoffType.id, input.description || null, ACTIVE_APPOINTMENT_STATUS).first<{ id: number }>();
+  if (!appointment) throw new Error("The overridden booking could not be created.");
+  await db.batch(input.allocations.map((allocation) => db.prepare(
+    `INSERT INTO appointment_area_allocations (appointment_id, item_area_id, allocation_percent, capacity_points)
+     VALUES (?, ?, ?, ?)`,
+  ).bind(appointment.id, allocation.itemAreaId, allocation.percentage, calculateAllocatedPoints(dropoffType.capacityPoints, allocation.percentage))));
+  return appointment.id;
 }
 
 export async function validateBooking(

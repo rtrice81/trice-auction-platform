@@ -11,7 +11,7 @@ const ROLE_PERMISSIONS = {
   admin: ["capacity:manage", "user:manage", "appointment:manage-all", "admin:access"],
 } as const;
 
-export type ApplicationUser = { id: number; authUserId: string; email: string; name: string; role: Role; active: boolean };
+export type ApplicationUser = { id: number; authUserId: string; email: string; name: string; role: Role; active: boolean; mustChangePassword: boolean };
 
 type AuthEnvironment = { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
 
@@ -34,15 +34,18 @@ export async function getCurrentUser(request: Request, db: D1Database, authEnv: 
   const user = await db.prepare(
     `SELECT id, auth_user_id AS authUserId, email,
             COALESCE(NULLIF(TRIM(first_name || ' ' || last_name), ''), email) AS name,
-            role, active
+            role, active, must_change_password AS mustChangePassword
      FROM users WHERE auth_user_id = ?`,
   ).bind(session.user.id).first<ApplicationUser>();
-  return user && user.active ? user : null;
+  return user && user.active ? { ...user, mustChangePassword: Boolean(user.mustChangePassword) } : null;
 }
 
 export async function requireUser(request: Request, db: D1Database, authEnv: AuthEnvironment) {
   const user = await getCurrentUser(request, db, authEnv);
   if (!user) throw redirect("/login");
+  if (user.mustChangePassword && new URL(request.url).pathname !== "/change-password") {
+    throw redirect("/change-password");
+  }
   return user;
 }
 

@@ -30,7 +30,9 @@ export const ADMIN_NAVIGATION: readonly AdminNavigationModule[] = [
     items: [
       { label: "Schedule", path: "/admin/schedule", module: "Drop-Offs", group: "Drop-Offs", allowedRoles: ["admin"], requiredPermission: "admin:access", displayOrder: 10 },
       { label: "New Drop-Off Date", path: "/admin/schedule/new", module: "Drop-Offs", group: "Drop-Offs", allowedRoles: ["admin"], requiredPermission: "admin:access", displayOrder: 20 },
-      { label: "Capacity Settings", path: "/admin/capacity", module: "Drop-Offs", group: "Drop-Offs", allowedRoles: ["admin"], requiredPermission: "capacity:manage", displayOrder: 30 },
+      { label: "Appointments", path: "/admin/appointments", module: "Drop-Offs", group: "Drop-Offs", allowedRoles: ["admin"], requiredPermission: "appointment:manage-all", displayOrder: 30 },
+      { label: "New Appointment", path: "/admin/appointments/new", module: "Drop-Offs", group: "Drop-Offs", allowedRoles: ["admin"], requiredPermission: "appointment:manage-all", displayOrder: 40 },
+      { label: "Capacity Settings", path: "/admin/capacity", module: "Drop-Offs", group: "Drop-Offs", allowedRoles: ["admin"], requiredPermission: "capacity:manage", displayOrder: 50 },
     ],
   },
   {
@@ -38,6 +40,7 @@ export const ADMIN_NAVIGATION: readonly AdminNavigationModule[] = [
     displayOrder: 20,
     items: [
       { label: "User Management", path: "/admin/users", module: "Users", group: "Users", allowedRoles: ["admin"], requiredPermission: "user:manage", displayOrder: 10 },
+      { label: "New Customer", path: "/admin/customers/new", module: "Users", group: "Users", allowedRoles: ["admin"], requiredPermission: "user:manage", displayOrder: 20 },
     ],
   },
 ];
