@@ -10,7 +10,6 @@ import {
 } from "../services/user-management.server";
 
 const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
-const ROLE_OPTIONS = ["customer", "employee", "manager", "admin"] as const;
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -79,21 +78,22 @@ export default function AdminUsers({ loaderData, actionData }: Route.ComponentPr
           </Notice>
         ) : null}
 
-        <Form method="get" className="mb-6 flex flex-wrap gap-3">
-          <label className="sr-only" htmlFor="user-search">Search users</label>
-          <input
-            id="user-search"
-            type="search"
-            name="q"
-            defaultValue={loaderData.search}
-            placeholder="Search name or email"
-            className="w-full max-w-md rounded-lg border border-stone-300 bg-white px-3 py-2.5"
-          />
-          <button className="rounded-lg bg-stone-900 px-4 py-2.5 text-sm font-semibold text-white">
-            Search
-          </button>
-          {loaderData.search ? <Link to="/admin/users" className="px-3 py-2.5 text-sm font-semibold text-amber-800">Clear</Link> : null}
-        </Form>
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end">
+          <Form method="get" className="flex flex-1 flex-wrap gap-3">
+            <label className="sr-only" htmlFor="user-search">Search users</label>
+            <input
+              id="user-search"
+              type="search"
+              name="q"
+              defaultValue={loaderData.search}
+              placeholder="Search users"
+              className="min-w-0 flex-1 rounded-lg border border-stone-300 bg-white px-3 py-2.5 sm:max-w-md"
+            />
+            <button className="rounded-lg bg-stone-900 px-4 py-2.5 text-sm font-semibold text-white">Search</button>
+            {loaderData.search ? <Link to="/admin/users" className="px-3 py-2.5 text-sm font-semibold text-amber-800">Clear</Link> : null}
+          </Form>
+          <Link to="/admin/customers/new" className="shrink-0 rounded-lg bg-amber-700 px-4 py-2.5 text-center text-sm font-semibold text-white hover:bg-amber-800">+ New Customer</Link>
+        </div>
 
         <div className="overflow-x-auto rounded-2xl border border-stone-200 bg-white shadow-sm">
           <table className="min-w-full divide-y divide-stone-200 text-left text-sm">
@@ -120,26 +120,7 @@ export default function AdminUsers({ loaderData, actionData }: Route.ComponentPr
                     </span>
                   </td>
                   <td className="px-4 py-4">{user.createdAt}</td>
-                  <td className="px-4 py-4">
-                    <div className="flex min-w-[23rem] flex-wrap gap-2">
-                      <Form method="post" className="flex gap-2">
-                        <input type="hidden" name="intent" value="change-role" />
-                        <input type="hidden" name="targetUserId" value={user.id} />
-                        <select name="role" defaultValue={user.role} className="rounded border border-stone-300 bg-white px-2 py-1.5">
-                          {ROLE_OPTIONS.map((role) => <option key={role} value={role}>{role}</option>)}
-                        </select>
-                        <button className="rounded bg-stone-800 px-3 py-1.5 font-semibold text-white">Save role</button>
-                      </Form>
-                      <Form method="post">
-                        <input type="hidden" name="intent" value="set-active" />
-                        <input type="hidden" name="targetUserId" value={user.id} />
-                        <input type="hidden" name="active" value={String(!user.active)} />
-                        <button className="rounded border border-stone-300 px-3 py-1.5 font-semibold text-stone-800">
-                          {user.active ? "Deactivate" : "Reactivate"}
-                        </button>
-                      </Form>
-                    </div>
-                  </td>
+                  <td className="px-4 py-4"><Link to={`/admin/users/${user.id}/edit`} className="font-semibold text-amber-800 underline">Edit</Link></td>
                 </tr>
               ))}
             </tbody>

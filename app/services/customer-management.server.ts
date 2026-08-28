@@ -15,7 +15,7 @@ export function customerInputFromForm(form: FormData) {
     lastName: String(form.get("lastName") ?? "").trim(),
     email: String(form.get("email") ?? "").trim().toLowerCase(),
     phone: String(form.get("phone") ?? "").trim(),
-    active: form.get("active") !== "false",
+    active: form.has("active"),
     temporaryPassword: String(form.get("temporaryPassword") ?? ""),
   };
 }
