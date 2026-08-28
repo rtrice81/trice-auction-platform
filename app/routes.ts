@@ -8,5 +8,7 @@ export default [
   route("api/auth/*", "routes/api.auth.ts"),
   route("employee", "routes/employee.tsx"),
   route("employee/:id", "routes/employee.detail.tsx"),
+  route("manager", "routes/manager.tsx"),
+  route("manager/:id", "routes/manager.detail.tsx"),
   route("admin/capacity", "routes/admin.capacity.tsx"),
 ] satisfies RouteConfig;
