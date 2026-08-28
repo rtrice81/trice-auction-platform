@@ -1,4 +1,4 @@
-import { type RouteConfig, index, route } from "@react-router/dev/routes";
+import { type RouteConfig, index, layout, route } from "@react-router/dev/routes";
 
 export default [
   index("routes/home.tsx"),
@@ -10,9 +10,11 @@ export default [
   route("employee/:id", "routes/employee.detail.tsx"),
   route("manager", "routes/manager.tsx"),
   route("manager/:id", "routes/manager.detail.tsx"),
-  route("admin/capacity", "routes/admin.capacity.tsx"),
-  route("admin/users", "routes/admin.users.tsx"),
-  route("admin/schedule", "routes/admin.schedule.tsx"),
-  route("admin/schedule/new", "routes/admin.schedule.new.tsx"),
-  route("admin/schedule/:id", "routes/admin.schedule.detail.tsx"),
+  layout("routes/admin.layout.tsx", [
+    route("admin/capacity", "routes/admin.capacity.tsx"),
+    route("admin/users", "routes/admin.users.tsx"),
+    route("admin/schedule", "routes/admin.schedule.tsx"),
+    route("admin/schedule/new", "routes/admin.schedule.new.tsx"),
+    route("admin/schedule/:id", "routes/admin.schedule.detail.tsx"),
+  ]),
 ] satisfies RouteConfig;

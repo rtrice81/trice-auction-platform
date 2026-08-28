@@ -67,10 +67,7 @@ export default function AdminUsers({ loaderData, actionData }: Route.ComponentPr
               Change application roles and account access. At least one active admin is always required.
             </p>
           </div>
-          <div className="flex gap-4 text-sm font-semibold text-amber-800">
-            <Link to="/admin/capacity">Capacity settings</Link>
-            <Link to="/">View booking page →</Link>
-          </div>
+          <Link to="/" className="text-sm font-semibold text-amber-800">View booking page →</Link>
         </header>
 
         {actionData?.ok ? <Notice variant="success">{actionData.message}</Notice> : null}
