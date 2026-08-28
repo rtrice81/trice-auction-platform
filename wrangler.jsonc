@@ -13,7 +13,14 @@
 	"observability": {
 		"enabled": true
 	},
-	"upload_source_maps": true
+	"upload_source_maps": true,
+	"d1_databases": [
+		{
+			"binding": "trice_auction_db",
+			"database_name": "trice-auction-db",
+			"database_id": "6f82d71d-e82b-43ad-a0d4-d0164358764e"
+		}
+	]
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
