@@ -49,7 +49,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export default function App({ loaderData }: Route.ComponentProps) {
-  return <><nav className="flex items-center justify-between border-b bg-white px-6 py-3 text-sm"><Link to="/" className="font-bold">Trice Auctions</Link>{loaderData.user ? <div className="flex items-center gap-3"><Link to="/my-appointments">My Appointments</Link>{hasPermission(loaderData.user,"appointment:read-scheduled")&&<Link to="/employee">Employee</Link>}{loaderData.user.role === "admin"&&<><Link to="/admin/users">Admin users</Link><Link to="/admin/capacity">Capacity</Link></>}<span>{loaderData.user.name}</span><Form action="/logout" method="post"><button>Logout</button></Form></div> : <div className="flex gap-3"><Link to="/login">Login</Link><Link to="/register">Register</Link></div>}</nav><Outlet /></>;
+  return <><nav className="flex items-center justify-between border-b bg-white px-6 py-3 text-sm"><Link to="/" className="font-bold">Trice Auctions</Link>{loaderData.user ? <div className="flex items-center gap-3"><Link to="/my-appointments">My Appointments</Link>{hasPermission(loaderData.user,"appointment:read-scheduled")&&<Link to="/employee">Employee</Link>}{loaderData.user.role === "admin"&&<><Link to="/admin/users">Admin users</Link><Link to="/admin/schedule">Schedule</Link><Link to="/admin/capacity">Capacity</Link></>}<span>{loaderData.user.name}</span><Form action="/logout" method="post"><button>Logout</button></Form></div> : <div className="flex gap-3"><Link to="/login">Login</Link><Link to="/register">Register</Link></div>}</nav><Outlet /></>;
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {

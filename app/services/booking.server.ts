@@ -1,3 +1,9 @@
+import {
+  ensureDropoffDay,
+  getEffectiveDateCapacity,
+  type EffectiveDateCapacity,
+} from "./date-capacity.server";
+
 export type ItemArea = {
   id: number;
   name: string;
@@ -191,6 +197,12 @@ export async function validateBooking(
   if (allocationErrors.length > 0) return validationFailure(allocationErrors);
 
   await ensureDropoffDay(db, input.appointmentDate, settings.defaultDailyIntakeCapacity);
+  const effectiveCapacity = await getEffectiveDateCapacity(
+    db,
+    input.appointmentDate,
+    settings.defaultDailyIntakeCapacity,
+    options.itemAreas,
+  );
 
   const monthBounds = getMonthBounds(input.appointmentDate);
   const monthlyBookings = await db
@@ -223,6 +235,7 @@ export async function validateBooking(
     dropoffType,
     options.itemAreas,
     input.allocations,
+    effectiveCapacity,
     input.appointmentId,
   );
   const capacityContext: CapacityContext = {
@@ -362,36 +375,35 @@ async function getSettings(db: D1Database): Promise<Settings> {
   };
 }
 
-async function ensureDropoffDay(db: D1Database, date: string, capacityPoints: number) {
-  await db
-    .prepare(
-      `INSERT INTO dropoff_days (dropoff_date, capacity_points)
-       VALUES (?, ?)
-       ON CONFLICT(dropoff_date) DO NOTHING`,
-    )
-    .bind(date, capacityPoints)
-    .run();
-}
-
 async function getCapacityEvaluation(
   db: D1Database,
   appointmentDate: string,
   dropoffType: DropoffType,
   itemAreas: ItemArea[],
   allocations: BookingInput["allocations"],
+  effectiveCapacity: EffectiveDateCapacity,
   excludedAppointmentId?: number,
 ) {
-  const dropoffDay = await db
-    .prepare(
-      "SELECT capacity_points AS capacityPoints, is_open AS isOpen FROM dropoff_days WHERE dropoff_date = ?",
-    )
-    .bind(appointmentDate)
-    .first<{ capacityPoints: number; isOpen: number }>();
-  if (!dropoffDay?.isOpen) {
+  if (!effectiveCapacity.isOpen) {
     return {
       errors: ["This drop-off date is not open for bookings."],
       overridableViolations: [],
-      context: { day: null, areas: [] as CapacityContext["areas"] },
+      context: {
+        day: {
+          date: appointmentDate,
+          isOpen: false,
+          capacityPoints: effectiveCapacity.dailyCapacityPoints,
+          usedPoints: 0,
+          requestedPoints: dropoffType.capacityPoints,
+        },
+        areas: effectiveCapacity.areas.map((area) => ({
+          id: area.id,
+          name: area.name,
+          usedPoints: 0,
+          requestedPoints: 0,
+          allowedPoints: area.capacityPoints + area.overflowAllowancePoints,
+        })),
+      },
     };
   }
 
@@ -425,7 +437,7 @@ async function getCapacityEvaluation(
   const dailyRequestedPoints = dropoffType.capacityPoints;
   const errors: string[] = [];
   const overridableViolations: string[] = [];
-  if (dailyUsedPoints + dailyRequestedPoints > dropoffDay.capacityPoints) {
+  if (dailyUsedPoints + dailyRequestedPoints > effectiveCapacity.dailyCapacityPoints) {
     const violation = "This drop-off date has reached its daily intake capacity.";
     errors.push(violation);
     overridableViolations.push(violation);
@@ -435,10 +447,11 @@ async function getCapacityEvaluation(
     areaUsageResult.results.map((usage) => [usage.itemAreaId, usage.usedPoints]),
   );
   const areas = itemAreas.map((area) => {
+    const effectiveArea = effectiveCapacity.areas.find((candidate) => candidate.id === area.id)!;
     const percentage = allocations.find((allocation) => allocation.itemAreaId === area.id)!.percentage;
     const requestedPoints = calculateAllocatedPoints(dropoffType.capacityPoints, percentage);
     const usedPoints = usedByArea.get(area.id) ?? 0;
-    const allowedPoints = area.normalCapacityPoints + area.overflowAllowancePoints;
+    const allowedPoints = effectiveArea.capacityPoints + effectiveArea.overflowAllowancePoints;
     if (usedPoints + requestedPoints > allowedPoints) {
       const violation = `${area.name} has reached its capacity, including the allowed overflow.`;
       errors.push(violation);
@@ -454,7 +467,7 @@ async function getCapacityEvaluation(
       day: {
         date: appointmentDate,
         isOpen: true,
-        capacityPoints: dropoffDay.capacityPoints,
+        capacityPoints: effectiveCapacity.dailyCapacityPoints,
         usedPoints: dailyUsedPoints,
         requestedPoints: dailyRequestedPoints,
       },
