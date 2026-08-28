@@ -11,4 +11,5 @@ export default [
   route("manager", "routes/manager.tsx"),
   route("manager/:id", "routes/manager.detail.tsx"),
   route("admin/capacity", "routes/admin.capacity.tsx"),
+  route("admin/users", "routes/admin.users.tsx"),
 ] satisfies RouteConfig;
