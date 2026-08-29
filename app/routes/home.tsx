@@ -1,10 +1,11 @@
 import { env } from "cloudflare:workers";
-import { data, Form, Link } from "react-router";
+import { data, Form, Link, redirect } from "react-router";
 
 import type { Route } from "./+types/home";
 import { createBooking, getBookingOptions } from "../services/booking.server";
 import { getCurrentUser } from "../services/auth.server";
 import { clearPendingBookingCookie, createPendingBooking, deletePendingBooking, getPendingBooking, getPendingBookingToken, pendingBookingCookie, pendingBookingFromForm } from "../services/pending-booking.server";
+import { bookingSuccessFlashCookie, createBookingSuccessFlash } from "../services/booking-success-flash.server";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -42,8 +43,12 @@ export async function action({ request }: Route.ActionArgs) {
   });
   if (result.ok) {
     const token = getPendingBookingToken(request);
+    const flashToken = await createBookingSuccessFlash(env.trice_auction_db, user.id, result.appointmentId);
     await deletePendingBooking(env.trice_auction_db, token);
-    return data(result, { status: 201, headers: { "Set-Cookie": clearPendingBookingCookie(request) } });
+    const headers = new Headers();
+    headers.append("Set-Cookie", clearPendingBookingCookie(request));
+    headers.append("Set-Cookie", bookingSuccessFlashCookie(flashToken, request));
+    return redirect("/my-appointments", { headers });
   }
   return data({ ...result, submitted: pendingBooking }, { status: 400 });
 }
@@ -66,12 +71,6 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
             Current capacity is confirmed when you submit your request.
           </p>
         </header>
-
-        {actionData?.ok ? (
-          <div className="mb-8 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-emerald-950" role="status">
-            {actionData.message}
-          </div>
-        ) : null}
 
         {loaderData.resumed ? <div className="mb-8 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-amber-950" role="status"><p className="font-semibold">Your pending booking has been restored.</p><p className="mt-1 text-sm">Availability will be checked again when you submit.</p></div> : null}
 
