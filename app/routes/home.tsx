@@ -1,9 +1,10 @@
 import { env } from "cloudflare:workers";
-import { data, Form } from "react-router";
+import { data, Form, Link } from "react-router";
 
 import type { Route } from "./+types/home";
 import { createBooking, getBookingOptions } from "../services/booking.server";
-import { requireUser } from "../services/auth.server";
+import { getCurrentUser } from "../services/auth.server";
+import { clearPendingBookingCookie, createPendingBooking, deletePendingBooking, getPendingBooking, getPendingBookingToken, pendingBookingCookie, pendingBookingFromForm } from "../services/pending-booking.server";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -15,32 +16,41 @@ export function meta({}: Route.MetaArgs) {
   ];
 }
 
-export async function loader() {
-  return getBookingOptions(env.trice_auction_db);
+export async function loader({ request }: Route.LoaderArgs) {
+  const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
+  const user = await getCurrentUser(request, env.trice_auction_db, runtime);
+  const token = getPendingBookingToken(request);
+  const [options, pendingBooking] = await Promise.all([
+    getBookingOptions(env.trice_auction_db),
+    user ? getPendingBooking(env.trice_auction_db, token) : Promise.resolve(null),
+  ]);
+  return { ...options, pendingBooking, resumed: Boolean(user && pendingBooking) };
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  const user = await requireUser(request, env.trice_auction_db, env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string });
   const formData = await request.formData();
-  const allocations = Array.from(formData.entries())
-    .filter(([name]) => name.startsWith("allocation-"))
-    .map(([name, value]) => ({
-      itemAreaId: Number(name.replace("allocation-", "")),
-      percentage: Number(value),
-    }));
+  const pendingBooking = pendingBookingFromForm(formData);
+  const user = await getCurrentUser(request, env.trice_auction_db, env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string });
+  if (!user) {
+    const token = await createPendingBooking(env.trice_auction_db, pendingBooking);
+    return data({ ok: false as const, requiresAuthentication: true, errors: [] as string[] }, { headers: { "Set-Cookie": pendingBookingCookie(token, request) } });
+  }
 
   const result = await createBooking(env.trice_auction_db, {
     userId: user.id,
-    appointmentDate: String(formData.get("appointmentDate") ?? ""),
-    dropoffTypeId: Number(formData.get("dropoffTypeId")),
-    description: String(formData.get("description") ?? "").trim(),
-    allocations,
+    ...pendingBooking,
   });
-
-  return data(result, { status: result.ok ? 201 : 400 });
+  if (result.ok) {
+    const token = getPendingBookingToken(request);
+    await deletePendingBooking(env.trice_auction_db, token);
+    return data(result, { status: 201, headers: { "Set-Cookie": clearPendingBookingCookie(request) } });
+  }
+  return data({ ...result, submitted: pendingBooking }, { status: 400 });
 }
 
 export default function Home({ loaderData, actionData }: Route.ComponentProps) {
+  const booking = actionData && "submitted" in actionData ? actionData.submitted : loaderData.pendingBooking;
+  const needsAuthentication = Boolean(actionData && "requiresAuthentication" in actionData && actionData.requiresAuthentication);
   return (
     <main className="min-h-screen bg-stone-50 text-stone-900">
       <div className="mx-auto max-w-5xl px-6 py-12 sm:py-20">
@@ -63,7 +73,11 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
           </div>
         ) : null}
 
-        {actionData && !actionData.ok ? (
+        {loaderData.resumed ? <div className="mb-8 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-amber-950" role="status"><p className="font-semibold">Your pending booking has been restored.</p><p className="mt-1 text-sm">Availability will be checked again when you submit.</p></div> : null}
+
+        {needsAuthentication ? <div className="mb-8 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-amber-950" role="status"><p className="font-semibold">An account is required to complete this request.</p><p className="mt-1 text-sm">Your booking details are saved securely for two hours. Sign in or create an account to continue.</p><div className="mt-4 flex flex-wrap gap-3"><Link to="/login" className="rounded-lg bg-stone-900 px-4 py-2 text-sm font-semibold text-white">Login</Link><Link to="/register" className="rounded-lg border border-stone-400 px-4 py-2 text-sm font-semibold">Create Account</Link></div></div> : null}
+
+        {actionData && !actionData.ok && !needsAuthentication ? (
           <div className="mb-8 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-red-950" role="alert">
             <p className="font-semibold">We could not schedule this drop-off.</p>
             <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
@@ -81,10 +95,11 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
             <div className="grid gap-5 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm sm:grid-cols-2">
               <label className="text-sm font-semibold text-stone-800">
                 Preferred drop-off date
-                <select required name="appointmentDate" disabled={loaderData.availableDates.length === 0} className="mt-2 block w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal outline-none focus:border-amber-600 focus:ring-2 focus:ring-amber-100">
+                <select required name="appointmentDate" defaultValue={booking?.appointmentDate ?? ""} disabled={loaderData.availableDates.length === 0} className="mt-2 block w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal outline-none focus:border-amber-600 focus:ring-2 focus:ring-amber-100">
                   <option value="">{loaderData.availableDates.length === 0 ? "No drop-off dates are currently available" : "Choose an available date"}</option>
                   {loaderData.availableDates.map((date) => <option key={date.date} value={date.date}>{date.date}{date.eventName ? ` — ${date.eventName}` : ""}</option>)}
                 </select>
+                {booking && !loaderData.availableDates.some((date) => date.date === booking.appointmentDate) ? <span className="mt-2 block text-sm font-normal text-amber-800">Your saved date is no longer available. Choose another open date.</span> : null}
               </label>
             </div>
           </section>
@@ -102,6 +117,7 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
                     type="radio"
                     name="dropoffTypeId"
                     value={dropoffType.id}
+                    defaultChecked={booking ? booking.dropoffTypeId === dropoffType.id : undefined}
                     className="sr-only"
                   />
                   <span className="block text-xl font-semibold text-stone-950">{dropoffType.name}</span>
@@ -134,7 +150,7 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
                       min="0"
                       max="100"
                       step="1"
-                      defaultValue={index === 0 ? 100 : 0}
+                      defaultValue={booking?.allocations.find((allocation) => allocation.itemAreaId === area.id)?.percentage ?? (index === 0 ? 100 : 0)}
                       className="block w-20 rounded-lg border border-stone-300 bg-white px-3 py-2 font-semibold outline-none focus:border-amber-600 focus:ring-2 focus:ring-amber-100"
                     />
                     <span className="text-sm text-stone-500">%</span>
@@ -149,6 +165,7 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
             <textarea
               name="description"
               rows={4}
+              defaultValue={booking?.description ?? ""}
               className="mt-2 block w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal outline-none focus:border-amber-600 focus:ring-2 focus:ring-amber-100"
             />
           </label>
