@@ -11,6 +11,7 @@ import {
   updateDropoffEvent,
   type ScheduleResult,
 } from "../services/schedule-management.server";
+import { ConfirmationForm } from "../components/confirmation-form";
 
 const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
 
@@ -45,7 +46,7 @@ export default function DropoffEventDetail({ loaderData, actionData }: Route.Com
       {actionData && !actionData.ok ? <p className="mt-4 rounded border border-red-200 bg-red-50 p-3" role="alert">{actionData.errors.join(" ")}</p> : null}
       <Form method="post" className="mt-6 rounded border bg-white p-6"><input type="hidden" name="intent" value="save" /><DropoffEventForm event={event} submitLabel="Save event changes" includeDate={false} /></Form>
       <section className="mt-8"><h2 className="text-2xl font-bold">Appointments</h2>{event.appointments.length === 0 ? <p className="mt-3 text-stone-600">No appointments are scheduled for this event.</p> : <ul className="mt-3 divide-y rounded border">{event.appointments.map((appointment) => <li key={appointment.id} className="flex flex-wrap justify-between gap-3 p-3"><span>{appointment.time || "Time TBD"} · {appointment.customer}</span><span>{appointment.loadType} · {appointment.capacityPoints} points · {appointment.status}</span></li>)}</ul>}</section>
-      <section className="mt-8 rounded border border-red-200 bg-red-50 p-5"><h2 className="font-bold">Delete event</h2><p className="mt-1 text-sm">Deletion is available only when this event has no appointments. Otherwise close it to preserve operational history.</p><Form method="post" className="mt-3"><input type="hidden" name="intent" value="delete" /><button className="text-sm font-semibold text-red-800 underline">Delete Drop-Off Event</button></Form></section>
+      <section className="mt-8 rounded border border-red-200 bg-red-50 p-5"><h2 className="font-bold">Delete event</h2><p className="mt-1 text-sm">Deletion is available only when this event has no appointments. Otherwise close it to preserve operational history.</p><ConfirmationForm method="post" className="mt-3" confirmation={{ title: "Permanently delete Drop-Off Event?", description: <>Are you sure you want to permanently delete this item? This action cannot be undone.<p className="mt-2 text-sm">{event.eventName || "Drop-Off Event"} · {event.date}</p></>, confirmLabel: "Permanently delete", destructive: true }}><input type="hidden" name="intent" value="delete" /><button className="text-sm font-semibold text-red-800 underline">Delete Drop-Off Event</button></ConfirmationForm></section>
     </main>
   );
 }

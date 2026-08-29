@@ -6,6 +6,7 @@ import {
   getAppointmentOverrideHistory,
 } from "../services/appointment-override-audit.server";
 import { requireAnyRole } from "../services/auth.server";
+import { ConfirmationForm } from "../components/confirmation-form";
 import {
   createBooking,
   getBookingOptions,
@@ -27,6 +28,7 @@ type AppointmentForAction = {
   typeId: number;
   description: string | null;
   status: string;
+  customer: string;
 };
 
 export async function loader({ request, params }: Route.LoaderArgs) {
@@ -212,10 +214,10 @@ export default function Detail({ loaderData, actionData }: Route.ComponentProps)
         </section>
       ) : null}
 
-      <Form method="post" className="mt-4">
+      <ConfirmationForm method="post" className="mt-4" confirmation={{ title: "Cancel drop-off appointment?", description: <><p>Are you sure you want to cancel this drop-off appointment?</p><p className="mt-2 text-sm">{appointment.customer} · {appointment.date} · {appointment.time || "Time TBD"}</p></>, confirmLabel: "Cancel appointment", destructive: true }}>
         <input type="hidden" name="cancel" value="1" />
         <button>Cancel appointment</button>
-      </Form>
+      </ConfirmationForm>
 
       <section className="mt-10" aria-labelledby="override-history-heading">
         <h2 id="override-history-heading" className="text-2xl font-bold">
@@ -308,9 +310,11 @@ async function getAppointment(db: D1Database, appointmentId: number) {
         appointment_time AS time,
         dropoff_type_id AS typeId,
         description,
-        status
+        status,
+        COALESCE(NULLIF(TRIM(users.first_name || ' ' || users.last_name), ''), users.email) AS customer
       FROM appointments
-      WHERE id = ?`,
+      JOIN users ON users.id = appointments.user_id
+      WHERE appointments.id = ?`,
     )
     .bind(appointmentId)
     .first<AppointmentForAction>();
