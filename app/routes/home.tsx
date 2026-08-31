@@ -11,6 +11,7 @@ import { Button, Notice, PageCard, PageIntro, PageShell } from "../components/de
 import { PendingBookingDialog } from "../components/pending-booking-dialog";
 import { PublicFormProtection } from "../components/public-form-protection";
 import { createPublicFormStart, verifyPublicFormSubmission } from "../services/public-form-protection.server";
+import { getUpcomingBookingReleases } from "../services/booking-release.server";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -26,9 +27,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string; TURNSTILE_SITE_KEY?: string; TURNSTILE_SECRET_KEY?: string };
   const user = await getCurrentUser(request, env.trice_auction_db, runtime);
   const token = getPendingBookingToken(request);
-  const [options, pendingBooking] = await Promise.all([
+  const [options, pendingBooking, upcomingReleases] = await Promise.all([
     getBookingOptions(env.trice_auction_db),
     user ? getPendingBooking(env.trice_auction_db, token) : Promise.resolve(null),
+    getUpcomingBookingReleases(env.trice_auction_db),
   ]);
   const protection = user ? null : await createPublicFormStart(request, "public-booking", runtime);
   return data({
@@ -40,6 +42,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     isAuthenticated: Boolean(user),
     turnstileSiteKey: runtime.TURNSTILE_SITE_KEY ?? "",
     formStartToken: protection?.token ?? "",
+    upcomingReleases,
   }, protection ? { headers: protection.headers } : undefined);
 }
 
@@ -82,6 +85,7 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
         <PageIntro eyebrow="Drop-off appointments" title="Schedule a Consignment Drop-Off">Choose your load and tell us how it is divided between our intake areas. Current capacity is confirmed when you submit your request.</PageIntro>
 
         {loaderData.resumed ? <Notice variant="warning"><p className="font-semibold">Your pending booking has been restored.</p><p className="mt-1">Availability will be checked again when you submit.</p></Notice> : null}
+        {loaderData.upcomingReleases.length ? <Notice variant="warning"><p className="font-semibold">Drop-Off Appointment Signup Opens {formatReleaseTime(loaderData.upcomingReleases[0].opensAt, loaderData.upcomingReleases[0].timezone)}</p><p className="mt-1">Upcoming dates: {loaderData.upcomingReleases.map((release) => release.eventDate).join(", ")}</p></Notice> : null}
 
         {needsAuthentication ? <noscript><Notice variant="warning"><p className="font-semibold">You’re almost done</p><p className="mt-1">An account is required to complete your drop-off request. Your appointment details have been saved for two hours.</p><div className="mt-4 flex flex-wrap gap-3"><Link to="/login" className="ta-button ta-button-primary">Log In</Link><Link to="/register" className="ta-button ta-button-secondary">Create Account</Link></div></Notice></noscript> : null}
 
@@ -169,6 +173,8 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
     </PageShell>
   );
 }
+
+function formatReleaseTime(value: string, timezone: string) { return new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(value)); }
 
 function hasBasicPublicBookingFields(booking: ReturnType<typeof pendingBookingFromForm>) {
   return Boolean(booking.appointmentDate) && Number.isInteger(booking.dropoffTypeId) && booking.dropoffTypeId > 0 && booking.allocations.length > 0;

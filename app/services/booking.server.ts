@@ -1,4 +1,5 @@
 import { getEffectiveDateCapacity, type EffectiveDateCapacity } from "./date-capacity.server";
+import { getBookableReleaseForDate } from "./booking-release.server";
 
 export type ItemArea = {
   id: number;
@@ -117,10 +118,12 @@ export async function getBookingOptions(db: D1Database) {
     ),
   ]);
 
+  const availableDates = (datesResult.results as AvailableDropoffDate[]);
+  const eligibleDates = await Promise.all(availableDates.map(async (date) => (await getBookableReleaseForDate(db, date.date)).eligible ? date : null));
   return {
     dropoffTypes: dropoffTypesResult.results as DropoffType[],
     itemAreas: itemAreasResult.results as ItemArea[],
-    availableDates: datesResult.results as AvailableDropoffDate[],
+    availableDates: eligibleDates.filter((date): date is AvailableDropoffDate => date !== null),
   };
 }
 
@@ -216,6 +219,9 @@ export async function validateBooking(
 ): Promise<BookingValidationResult> {
   const inputErrors = validateInput(input);
   if (inputErrors.length > 0) return validationFailure(inputErrors);
+
+  const release = await getBookableReleaseForDate(db, input.appointmentDate);
+  if (!release.eligible) return validationFailure(["This drop-off date is not currently available for signup."]);
 
   if (await isBlockedByDropoffBan(db, input)) {
     return validationFailure(["You are currently unable to schedule a drop-off."]);

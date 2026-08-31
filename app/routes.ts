@@ -23,6 +23,7 @@ export default [
     route("admin/appointments/:id/edit", "routes/admin.appointments.edit.tsx"),
     route("admin/appointments/:id", "routes/admin.appointments.detail.tsx"),
     route("admin/schedule", "routes/admin.schedule.tsx"),
+    route("admin/booking-releases", "routes/admin.booking-releases.tsx"),
     route("admin/schedule/new", "routes/admin.schedule.new.tsx"),
     route("admin/schedule/:id", "routes/admin.schedule.detail.tsx"),
   ]),
