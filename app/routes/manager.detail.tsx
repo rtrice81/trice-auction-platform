@@ -31,7 +31,12 @@ type AppointmentForAction = {
   customer: string;
 };
 
-export async function loader({ request, params }: Route.LoaderArgs) {
+type AppointmentDetailRequestArgs = {
+  request: Request;
+  params: Readonly<Record<string, string | undefined>>;
+};
+
+export async function loader({ request, params }: AppointmentDetailRequestArgs) {
   await requireAnyRole(request, env.trice_auction_db, runtime, ["manager", "admin"]);
 
   const appointmentId = Number(params.id);
@@ -47,7 +52,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   return { appointment, allocations: allocationResult, options, overrideHistory };
 }
 
-export async function action({ request, params }: Route.ActionArgs) {
+export async function action({ request, params }: AppointmentDetailRequestArgs) {
   const actor = await requireAnyRole(request, env.trice_auction_db, runtime, ["manager", "admin"]);
   if (actor.role !== "manager" && actor.role !== "admin") {
     throw new Response("Forbidden", { status: 403 });
@@ -126,7 +131,20 @@ export async function action({ request, params }: Route.ActionArgs) {
   });
 }
 
-export default function Detail({ loaderData, actionData }: Route.ComponentProps) {
+type AppointmentManagementDetailProps = Pick<
+  Route.ComponentProps,
+  "loaderData" | "actionData"
+> & {
+  backTo?: string;
+  backLabel?: string;
+};
+
+export function AppointmentManagementDetail({
+  loaderData,
+  actionData,
+  backTo = "/manager",
+  backLabel = "← Manager",
+}: AppointmentManagementDetailProps) {
   const { appointment, options, allocations, overrideHistory } = loaderData;
   const validationFailure = actionData && "errors" in actionData ? actionData : null;
   const canOverride =
@@ -139,7 +157,7 @@ export default function Detail({ loaderData, actionData }: Route.ComponentProps)
 
   return (
     <main className="mx-auto max-w-4xl p-8">
-      <Link to="/manager">← Manager</Link>
+      <Link to={backTo}>{backLabel}</Link>
 
       <h1 className="mt-4 text-3xl font-bold">Appointment #{appointment.id}</h1>
 
@@ -263,6 +281,10 @@ export default function Detail({ loaderData, actionData }: Route.ComponentProps)
   );
 }
 
+export default function Detail(props: Route.ComponentProps) {
+  return <AppointmentManagementDetail {...props} />;
+}
+
 function bookingInputFromForm(form: FormData, appointment: AppointmentForAction): BookingInput & {
   appointmentId: number;
 } {
@@ -304,7 +326,7 @@ async function getAppointment(db: D1Database, appointmentId: number) {
   return db
     .prepare(
       `SELECT
-        id,
+        appointments.id AS id,
         user_id AS userId,
         appointment_date AS date,
         appointment_time AS time,

@@ -26,7 +26,7 @@ export async function action({ request }: Route.ActionArgs) {
   if (validation.ok || !validation.dropoffType || !onlyOverridable(validation.errors, validation.overridableViolations)) return data({ ...(validation.ok ? { ok: false, errors: ["This appointment no longer requires an override."], overridableViolations: [] } : validation), submitted: input }, { status: 400 });
   const appointmentId = await createBookingWithOverride(env.trice_auction_db, input, validation.dropoffType);
   await createAppointmentOverrideAuditStatement(env.trice_auction_db, { appointmentId, actorUserId: actor.id, actorRole: "admin", reason, violatedRules: validation.overridableViolations, previousValues: null, requestedValues: input, capacityContext: validation.capacityContext }).run();
-  return redirect(`/manager/${appointmentId}`);
+  return redirect(`/admin/appointments/${appointmentId}`);
 }
 
 export default function NewAppointment({ loaderData, actionData }: Route.ComponentProps) {
