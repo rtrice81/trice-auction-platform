@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { data, Form } from "react-router";
+import { useEffect, useRef, useState } from "react";
 
 import type { Route } from "./+types/profile";
 import { getAuth, requireUser } from "../services/auth.server";
@@ -39,9 +40,14 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   if (intent === "change-password") {
+    const newPassword = String(form.get("newPassword") || "");
+    const confirmNewPassword = String(form.get("confirmNewPassword") || "");
+    if (newPassword !== confirmNewPassword) {
+      return data({ ok: false as const, passwordError: "The new passwords do not match." }, { status: 400 });
+    }
     const response = await getAuth(env.trice_auction_db, runtime).handler(new Request(
       new URL("/api/auth/change-password", request.url),
-      { method: "POST", headers: { "content-type": "application/json", origin: new URL(request.url).origin, cookie: request.headers.get("cookie") || "" }, body: JSON.stringify({ currentPassword: String(form.get("currentPassword") || ""), newPassword: String(form.get("newPassword") || ""), revokeOtherSessions: true }) },
+      { method: "POST", headers: { "content-type": "application/json", origin: new URL(request.url).origin, cookie: request.headers.get("cookie") || "" }, body: JSON.stringify({ currentPassword: String(form.get("currentPassword") || ""), newPassword, revokeOtherSessions: true }) },
     ));
     if (!response.ok) return data({ ok: false as const, passwordError: "Password could not be changed. Check your current password and choose at least 8 characters." }, { status: 400 });
     return data({ ok: true as const, passwordMessage: "Your password has been changed. Other sessions have been signed out." }, { headers: response.headers });
@@ -54,6 +60,12 @@ export default function Profile({ loaderData, actionData }: Route.ComponentProps
   const values = actionData && "values" in actionData ? actionData.values : loaderData.profile;
   const primary = values.addresses.primary;
   const secondary = values.addresses.secondary;
+  const passwordFormRef = useRef<HTMLFormElement>(null);
+  const [passwordConfirmationError, setPasswordConfirmationError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (actionData && "passwordMessage" in actionData) passwordFormRef.current?.reset();
+  }, [actionData]);
 
   return <main className="min-h-screen bg-stone-50 text-stone-900"><div className="mx-auto max-w-4xl px-6 py-12 sm:py-16">
     <header className="border-b border-stone-200 pb-8"><p className="text-sm font-semibold tracking-[0.18em] text-amber-700 uppercase">Trice Auctions</p><h1 className="mt-2 text-4xl font-bold tracking-tight text-stone-950">My Profile</h1><p className="mt-3 max-w-2xl text-stone-600">Manage your account details, addresses, and sign-in security.</p></header>
@@ -64,7 +76,7 @@ export default function Profile({ loaderData, actionData }: Route.ComponentProps
       <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm"><h2 className="text-2xl font-semibold text-stone-950">Addresses</h2><p className="mt-2 text-sm text-stone-600">Add a primary address and, if needed, a secondary address. You can leave either address blank.</p><AddressFields heading="Primary address" prefix="primary" address={primary}/><AddressFields heading="Secondary address" prefix="secondary" address={secondary}/></section>
       <div className="flex flex-wrap gap-3"><button className="rounded-lg bg-stone-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2">Save profile</button><a href="/profile" className="rounded-lg border border-stone-300 px-5 py-2.5 text-sm font-semibold text-stone-800">Cancel</a></div>
     </Form>
-    <section className="mt-10 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm" aria-labelledby="security-heading"><h2 id="security-heading" className="text-2xl font-semibold text-stone-950">Security</h2><p className="mt-2 text-sm text-stone-600">Changing your password signs out your other sessions.</p>{actionData && "passwordMessage" in actionData ? <Notice variant="success">{actionData.passwordMessage}</Notice> : null}{actionData && "passwordError" in actionData ? <Notice variant="error">{actionData.passwordError}</Notice> : null}<Form method="post" className="mt-5 grid gap-5 sm:grid-cols-2"><input type="hidden" name="intent" value="change-password"/><Field label="Current password" name="currentPassword" type="password" autoComplete="current-password" required/><Field label="New password" name="newPassword" type="password" autoComplete="new-password" minLength={8} required/><div className="sm:col-span-2"><button className="rounded-lg bg-stone-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2">Change password</button></div></Form></section>
+    <section className="mt-10 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm" aria-labelledby="security-heading"><h2 id="security-heading" className="text-2xl font-semibold text-stone-950">Security</h2><p className="mt-2 text-sm text-stone-600">Changing your password signs out your other sessions.</p>{actionData && "passwordMessage" in actionData ? <Notice variant="success">{actionData.passwordMessage}</Notice> : null}{passwordConfirmationError ? <Notice variant="error">{passwordConfirmationError}</Notice> : null}{actionData && "passwordError" in actionData ? <Notice variant="error">{actionData.passwordError}</Notice> : null}<Form ref={passwordFormRef} method="post" className="mt-5 grid gap-5 sm:grid-cols-2" onSubmit={(event) => { const form = new FormData(event.currentTarget); if (form.get("newPassword") !== form.get("confirmNewPassword")) { event.preventDefault(); setPasswordConfirmationError("The new passwords do not match."); } else setPasswordConfirmationError(null); }}><input type="hidden" name="intent" value="change-password"/><Field label="Current password" name="currentPassword" type="password" autoComplete="current-password" required/><Field label="New password" name="newPassword" type="password" autoComplete="new-password" minLength={8} required/><Field label="Confirm new password" name="confirmNewPassword" type="password" autoComplete="new-password" minLength={8} required/><div className="sm:col-span-2"><button className="rounded-lg bg-stone-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2">Change password</button></div></Form></section>
   </div></main>;
 }
 
