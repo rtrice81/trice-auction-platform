@@ -3,6 +3,7 @@ import { data, Form, Link } from "react-router";
 import type { Route } from "./+types/my-appointments.detail";
 import { requireOwnership, requireUser } from "../services/auth.server";
 import { createBooking, getBookingOptions } from "../services/booking.server";
+import { Button, FormField, Notice, PageCard, PageIntro, PageShell } from "../components/design-system";
 
 const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
 
@@ -61,25 +62,21 @@ export async function action({ request, params }: Route.ActionArgs) {
 export default function Detail({ loaderData, actionData }: Route.ComponentProps) {
   const { appointment, allocations, options } = loaderData;
   return (
-    <main className="mx-auto max-w-2xl p-8">
-      <Link to="/my-appointments">← My Appointments</Link>
-      <h1 className="mt-4 text-3xl font-bold">Edit appointment</h1>
-      {actionData && !actionData.ok ? <p className="mt-3" role="alert">{actionData.errors.join(" ")}</p> : null}
-      <Form method="post" className="mt-5 space-y-3">
-        <label className="block">Drop-off date
-          <select name="appointmentDate" defaultValue={appointment.appointmentDate} className="ml-2 border p-2">
+    <PageShell><div className="max-w-3xl"><Link to="/my-appointments" className="text-sm font-bold text-[#9d302f]">← My Appointments</Link><PageIntro eyebrow="Customer portal" title="Edit appointment">Update your scheduled drop-off details. Availability is confirmed when you save.</PageIntro>
+      {actionData && !actionData.ok ? <Notice variant="error">{actionData.errors.join(" ")}</Notice> : null}
+      <PageCard title="Appointment details"><Form method="post" className="grid gap-5 sm:grid-cols-2">
+        <FormField label="Drop-off date"><select name="appointmentDate" defaultValue={appointment.appointmentDate}>
             {options.availableDates.map((date) => <option key={date.date} value={date.date}>{date.date}</option>)}
-          </select>
-        </label>
-        {!options.availableDates.some((date) => date.date === appointment.appointmentDate) ? <p className="text-sm" role="status">This appointment’s current date is no longer bookable. Choose an open configured date to save changes.</p> : null}
-        <input type="time" name="appointmentTime" defaultValue={appointment.appointmentTime ?? ""} />
-        <select name="dropoffTypeId" defaultValue={appointment.dropoffTypeId}>
+          </select></FormField>
+        {!options.availableDates.some((date) => date.date === appointment.appointmentDate) ? <div className="sm:col-span-2"><Notice variant="warning">This appointment’s current date is no longer bookable. Choose an open configured date to save changes.</Notice></div> : null}
+        <FormField label="Drop-off time"><input type="time" name="appointmentTime" defaultValue={appointment.appointmentTime ?? ""} /></FormField>
+        <FormField label="Load type"><select name="dropoffTypeId" defaultValue={appointment.dropoffTypeId}>
           {options.dropoffTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
-        </select>
-        {options.itemAreas.map((area) => <label key={area.id}>{area.name}<input name={`allocation-${area.id}`} type="number" defaultValue={allocations.find((allocation: any) => allocation.itemAreaId === area.id)?.percentage ?? 0} />%</label>)}
-        <textarea name="description" defaultValue={appointment.description ?? ""} />
-        <button disabled={options.availableDates.length === 0}>Save changes</button>
-      </Form>
-    </main>
+        </select></FormField>
+        <div className="grid gap-4 sm:col-span-2 sm:grid-cols-3">{options.itemAreas.map((area) => <FormField key={area.id} label={`${area.name} percentage`}><input name={`allocation-${area.id}`} type="number" min="0" max="100" defaultValue={allocations.find((allocation: any) => allocation.itemAreaId === area.id)?.percentage ?? 0} /></FormField>)}</div>
+        <FormField label="Notes" className="sm:col-span-2"><textarea name="description" rows={4} defaultValue={appointment.description ?? ""} /></FormField>
+        <div className="sm:col-span-2"><Button disabled={options.availableDates.length === 0}>Save changes</Button></div>
+      </Form></PageCard>
+    </div></PageShell>
   );
 }

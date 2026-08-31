@@ -6,6 +6,7 @@ import { createBooking, getBookingOptions } from "../services/booking.server";
 import { getCurrentUser } from "../services/auth.server";
 import { clearPendingBookingCookie, createPendingBooking, deletePendingBooking, getPendingBooking, getPendingBookingToken, pendingBookingCookie, pendingBookingFromForm } from "../services/pending-booking.server";
 import { bookingSuccessFlashCookie, createBookingSuccessFlash } from "../services/booking-success-flash.server";
+import { Button, Notice, PageCard, PageIntro, PageShell } from "../components/design-system";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -57,41 +58,25 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
   const booking = actionData && "submitted" in actionData ? actionData.submitted : loaderData.pendingBooking;
   const needsAuthentication = Boolean(actionData && "requiresAuthentication" in actionData && actionData.requiresAuthentication);
   return (
-    <main className="min-h-screen bg-stone-50 text-stone-900">
-      <div className="mx-auto max-w-5xl px-6 py-12 sm:py-20">
-        <header className="mb-12 border-b border-stone-200 pb-8">
-          <p className="mb-3 text-sm font-semibold tracking-[0.18em] text-amber-700 uppercase">
-            Trice Auctions
-          </p>
-          <h1 className="max-w-3xl text-4xl font-bold tracking-tight text-stone-950 sm:text-5xl">
-            Schedule a Consignment Drop-Off
-          </h1>
-          <p className="mt-5 max-w-2xl text-lg leading-8 text-stone-600">
-            Choose your load and tell us how it is divided between our intake areas.
-            Current capacity is confirmed when you submit your request.
-          </p>
-        </header>
+    <PageShell><div className="max-w-5xl">
+        <PageIntro eyebrow="Drop-off appointments" title="Schedule a Consignment Drop-Off">Choose your load and tell us how it is divided between our intake areas. Current capacity is confirmed when you submit your request.</PageIntro>
 
-        {loaderData.resumed ? <div className="mb-8 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-amber-950" role="status"><p className="font-semibold">Your pending booking has been restored.</p><p className="mt-1 text-sm">Availability will be checked again when you submit.</p></div> : null}
+        {loaderData.resumed ? <Notice variant="warning"><p className="font-semibold">Your pending booking has been restored.</p><p className="mt-1">Availability will be checked again when you submit.</p></Notice> : null}
 
-        {needsAuthentication ? <div className="mb-8 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-amber-950" role="status"><p className="font-semibold">An account is required to complete this request.</p><p className="mt-1 text-sm">Your booking details are saved securely for two hours. Sign in or create an account to continue.</p><div className="mt-4 flex flex-wrap gap-3"><Link to="/login" className="rounded-lg bg-stone-900 px-4 py-2 text-sm font-semibold text-white">Login</Link><Link to="/register" className="rounded-lg border border-stone-400 px-4 py-2 text-sm font-semibold">Create Account</Link></div></div> : null}
+        {needsAuthentication ? <Notice variant="warning"><p className="font-semibold">An account is required to complete this request.</p><p className="mt-1">Your booking details are saved securely for two hours. Sign in or create an account to continue.</p><div className="mt-4 flex flex-wrap gap-3"><Link to="/login" className="ta-button ta-button-primary">Log in</Link><Link to="/register" className="ta-button ta-button-secondary">Create account</Link></div></Notice> : null}
 
         {actionData && !actionData.ok && !needsAuthentication ? (
-          <div className="mb-8 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-red-950" role="alert">
+          <Notice variant="error">
             <p className="font-semibold">We could not schedule this drop-off.</p>
             <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
               {actionData.errors.map((error) => <li key={error}>{error}</li>)}
             </ul>
-          </div>
+          </Notice>
         ) : null}
 
         <Form method="post" action="?index" className="space-y-10">
-          <section aria-labelledby="consignor-heading">
-            <div className="mb-5">
-              <p className="text-sm font-semibold text-amber-700">Step 1 of 3</p>
-              <h2 id="consignor-heading" className="mt-1 text-2xl font-semibold">Your drop-off</h2>
-            </div>
-            <div className="grid gap-5 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm sm:grid-cols-2">
+          <PageCard title="1. Your drop-off">
+            <div className="grid gap-5 sm:grid-cols-2">
               <label className="text-sm font-semibold text-stone-800">
                 Preferred drop-off date
                 <select required name="appointmentDate" defaultValue={booking?.appointmentDate ?? ""} disabled={loaderData.availableDates.length === 0} className="mt-2 block w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal outline-none focus:border-amber-600 focus:ring-2 focus:ring-amber-100">
@@ -101,13 +86,9 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
                 {booking && !loaderData.availableDates.some((date) => date.date === booking.appointmentDate) ? <span className="mt-2 block text-sm font-normal text-amber-800">Your saved date is no longer available. Choose another open date.</span> : null}
               </label>
             </div>
-          </section>
+          </PageCard>
 
-          <fieldset>
-            <legend className="mb-5">
-              <span className="block text-sm font-semibold text-amber-700">Step 2 of 3</span>
-              <span className="mt-1 block text-2xl font-semibold">Choose your load type</span>
-            </legend>
+          <fieldset><legend className="sr-only">Choose your load type</legend><PageCard title="2. Choose your load type">
             <div className="grid gap-4 sm:grid-cols-2">
               {loaderData.dropoffTypes.map((dropoffType) => (
                 <label key={dropoffType.id} className="cursor-pointer rounded-2xl border border-stone-200 bg-white p-6 shadow-sm transition hover:border-amber-500 hover:shadow-md has-[:checked]:border-amber-600 has-[:checked]:ring-2 has-[:checked]:ring-amber-100">
@@ -125,14 +106,9 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
                   </span>
                 </label>
               ))}
-            </div>
-          </fieldset>
+            </div></PageCard></fieldset>
 
-          <fieldset>
-            <legend className="mb-2">
-              <span className="block text-sm font-semibold text-amber-700">Step 3 of 3</span>
-              <span className="mt-1 block text-2xl font-semibold">Allocate your item areas</span>
-            </legend>
+          <fieldset><legend className="sr-only">Allocate your item areas</legend><PageCard title="3. Allocate your item areas">
             <p className="mb-5 max-w-2xl text-sm leading-6 text-stone-600">
               Enter whole percentages for every active area. They must add up to exactly 100%.
             </p>
@@ -156,8 +132,7 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
                   </span>
                 </label>
               ))}
-            </div>
-          </fieldset>
+            </div></PageCard></fieldset>
 
           <label className="block max-w-2xl text-sm font-semibold text-stone-800">
             Notes about your items <span className="font-normal text-stone-500">(optional)</span>
@@ -169,11 +144,9 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
             />
           </label>
 
-          <button type="submit" disabled={loaderData.availableDates.length === 0} className="rounded-xl bg-stone-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-amber-700 focus-visible:ring-2 focus:ring-amber-600 focus:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50">
-            Request drop-off appointment
-          </button>
+          <Button type="submit" disabled={loaderData.availableDates.length === 0}>Request drop-off appointment</Button>
         </Form>
       </div>
-    </main>
+    </PageShell>
   );
 }

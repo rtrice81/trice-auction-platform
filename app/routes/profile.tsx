@@ -67,7 +67,7 @@ export default function Profile({ loaderData, actionData }: Route.ComponentProps
     if (actionData && "passwordMessage" in actionData) passwordFormRef.current?.reset();
   }, [actionData]);
 
-  return <main className="min-h-screen bg-stone-50 text-stone-900"><div className="mx-auto max-w-4xl px-6 py-12 sm:py-16">
+  return <main className="ta-page ta-profile"><div className="max-w-4xl">
     <header className="border-b border-stone-200 pb-8"><p className="text-sm font-semibold tracking-[0.18em] text-amber-700 uppercase">Trice Auctions</p><h1 className="mt-2 text-4xl font-bold tracking-tight text-stone-950">My Profile</h1><p className="mt-3 max-w-2xl text-stone-600">Manage your account details, addresses, and sign-in security.</p></header>
     {actionData?.ok && "message" in actionData ? <Notice variant="success">{actionData.message}</Notice> : null}
     {actionData && !actionData.ok && "errors" in actionData ? <Notice variant="error">{actionData.errors.join(" ")}</Notice> : null}

@@ -11,5 +11,47 @@ html {
 }
 
 body {
-  @apply bg-white text-stone-900;
+  @apply bg-[#f3f4f6] text-[#22252a];
+}
+
+@layer components {
+  .ta-site-header { @apply bg-white shadow-sm; }
+  .ta-utility { @apply bg-[#9d302f] text-white; }
+  .ta-utility-inner { @apply mx-auto flex min-h-9 max-w-screen-2xl items-center justify-between gap-4 px-5 text-[11px] font-semibold uppercase tracking-wide sm:px-8; }
+  .ta-utility-inner > div { @apply flex items-center gap-4; }
+  .ta-utility a, .ta-utility button { @apply text-white hover:text-white/80; }
+  .ta-main-nav { @apply mx-auto flex min-h-24 max-w-screen-2xl flex-col justify-center gap-4 px-5 py-4 sm:px-8 lg:flex-row lg:items-center lg:justify-between; }
+  .ta-brand { @apply flex min-w-0 flex-col text-[#9d302f]; }
+  .ta-brand img { @apply h-16 max-w-64 object-contain object-left; }
+  .ta-brand strong { @apply font-serif text-3xl italic tracking-tight; }
+  .ta-brand span { @apply mt-1 text-xs font-bold uppercase tracking-[0.16em] text-[#293d89]; }
+  .ta-primary-nav { @apply flex flex-wrap items-center gap-x-6 gap-y-2 text-sm font-semibold text-[#54575d] lg:justify-end; }
+  .ta-primary-nav a { @apply border-b-2 border-transparent py-2 hover:border-[#9d302f] hover:text-[#9d302f]; }
+  .ta-page { @apply min-h-screen bg-[#f3f4f6] px-4 py-9 sm:px-6 sm:py-12; }
+  .ta-page > * { @apply mx-auto max-w-6xl; }
+  .ta-page-intro { @apply mb-8 border-b border-[#d7d9dc] pb-7; }
+  .ta-eyebrow { @apply mb-2 text-xs font-bold uppercase tracking-[0.16em] text-[#9d302f]; }
+  .ta-page-intro h1 { @apply text-3xl font-bold tracking-tight text-[#25272b] sm:text-4xl; }
+  .ta-page-intro > p:last-child { @apply mt-3 max-w-3xl text-base leading-7 text-[#5f6368]; }
+  .ta-card { @apply overflow-hidden rounded-xl border border-[#dfe1e4] bg-white shadow-sm; }
+  .ta-card-heading { @apply bg-[#9d302f] px-5 py-3 text-lg font-bold text-white sm:px-6; }
+  .ta-card-body { @apply bg-[#f8f9fa] p-5 sm:p-6; }
+  .ta-notice { @apply mb-6 rounded-lg border px-5 py-4 text-sm shadow-sm; }
+  .ta-notice-success { @apply border-emerald-200 bg-emerald-50 text-emerald-950; }
+  .ta-notice-warning { @apply border-[#e9c7a6] bg-[#fff7ed] text-[#7c2d12]; }
+  .ta-notice-error { @apply border-red-200 bg-red-50 text-red-950; }
+  .ta-button { @apply inline-flex min-h-11 items-center justify-center rounded-md px-5 py-2.5 text-sm font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9d302f] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50; }
+  .ta-button-primary { @apply bg-[#9d302f] text-white hover:bg-[#812625]; }
+  .ta-button-secondary { @apply border border-[#bfc3c8] bg-white text-[#36393e] hover:bg-[#f3f4f6]; }
+  .ta-button-destructive { @apply bg-red-700 text-white hover:bg-red-800; }
+  .ta-field { @apply block text-sm font-semibold text-[#35383d]; }
+  .ta-field > span { @apply block; }
+  .ta-field input, .ta-field select, .ta-field textarea { @apply mt-2 block w-full rounded-md border border-[#c9cdd2] bg-white px-3 py-2.5 font-normal outline-none focus:border-[#9d302f] focus:ring-2 focus:ring-[#f2d8d7]; }
+  .ta-field small { @apply mt-1 block text-xs font-normal leading-5 text-[#666a70]; }
+  .ta-admin { @apply bg-[#f3f4f6] text-[#25272b]; }
+  .ta-profile header, .ta-admin-page header { @apply border-[#d7d9dc]; }
+  .ta-profile header > p:first-child, .ta-admin-page header > div > p:first-child { @apply text-[#9d302f]; }
+  .ta-profile form > section, .ta-profile > div > section, .ta-admin-page section { @apply overflow-hidden rounded-xl border-[#dfe1e4] bg-[#f8f9fa] shadow-sm; }
+  .ta-profile form > section > h2, .ta-profile > div > section > h2, .ta-admin-page section > h2 { @apply -mx-6 -mt-6 mb-5 bg-[#9d302f] px-6 py-3 text-lg font-bold text-white; }
+  .ta-profile button:not([data-confirm-dialog-trigger]), .ta-admin-page button[type="submit"] { @apply bg-[#9d302f] hover:bg-[#812625]; }
 }

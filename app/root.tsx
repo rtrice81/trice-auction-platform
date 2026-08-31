@@ -9,9 +9,9 @@ import {
 
 import type { Route } from "./+types/root";
 import { env } from "cloudflare:workers";
-import { Form, Link } from "react-router";
 import { getCurrentUser } from "./services/auth.server";
 import { getSiteLogo } from "./services/branding.server";
+import { AppHeader } from "./components/app-header";
 import "./app.css";
 
 export const links: Route.LinksFunction = () => [
@@ -56,8 +56,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 export default function App({ loaderData }: Route.ComponentProps) {
   const user = loaderData.user;
   const logo = loaderData.logo;
-  const canUseEmployeeTools = user?.role === "employee" || user?.role === "manager" || user?.role === "admin";
-  return <><nav className="flex items-center justify-between gap-4 border-b bg-white px-6 py-3 text-sm"><Link to="/" className="flex min-w-0 items-center font-bold">{logo ? <img src={`/branding/logo?v=${encodeURIComponent(logo.updatedAt)}`} alt="Trice Auctions" className="h-10 max-w-44 object-contain object-left" /> : "Trice Auctions"}</Link>{user ? <div className="flex items-center gap-3"><Link to="/my-appointments">My Appointments</Link><Link to="/profile">My Profile</Link>{canUseEmployeeTools&&<Link to="/employee">Employee</Link>}{user.role === "admin"&&<Link to="/admin/schedule">Admin</Link>}<span>{user.name}</span><Form action="/logout" method="post"><button>Logout</button></Form></div> : <div className="flex gap-3"><Link to="/login">Login</Link><Link to="/register">Register</Link></div>}</nav><Outlet /></>;
+  return <><AppHeader user={user} logo={logo} /><Outlet /></>;
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {

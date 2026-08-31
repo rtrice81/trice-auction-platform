@@ -39,8 +39,8 @@ export async function action({ request }: Route.ActionArgs) {
 
 export default function AdminBranding({ loaderData, actionData }: Route.ComponentProps) {
   return (
-    <main className="min-h-screen bg-stone-50 text-stone-900">
-      <div className="mx-auto max-w-4xl px-6 py-12 sm:py-16">
+    <main className="ta-page ta-admin-page">
+      <div className="max-w-4xl">
         <header className="mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-stone-200 pb-8">
           <div>
             <p className="mb-3 text-sm font-semibold tracking-[0.18em] text-amber-700 uppercase">Trice Auctions · System</p>
