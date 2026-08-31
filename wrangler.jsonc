@@ -18,7 +18,8 @@
 		{
 			"binding": "trice_auction_db",
 			"database_name": "trice-auction-db",
-			"database_id": "6f82d71d-e82b-43ad-a0d4-d0164358764e"
+			"database_id": "6f82d71d-e82b-43ad-a0d4-d0164358764e",
+			"migrations_dir": "migrations"
 		}
 	],
 	"r2_buckets": [
