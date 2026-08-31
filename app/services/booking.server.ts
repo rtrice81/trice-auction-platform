@@ -217,6 +217,10 @@ export async function validateBooking(
   const inputErrors = validateInput(input);
   if (inputErrors.length > 0) return validationFailure(inputErrors);
 
+  if (await isBlockedByDropoffBan(db, input)) {
+    return validationFailure(["You are currently unable to schedule a drop-off."]);
+  }
+
   const [options, settings] = await Promise.all([getBookingOptions(db), getSettings(db)]);
   const dropoffType = options.dropoffTypes.find((type) => type.id === input.dropoffTypeId);
   if (!dropoffType) return validationFailure(["Choose an available load type."]);
@@ -346,6 +350,26 @@ function validationFailure(errors: string[]): BookingValidationResult {
     capacityContext: null,
     dropoffType: null,
   };
+}
+
+/**
+ * A ban prevents a customer from creating a future booking.  They may still
+ * save an existing appointment without moving it to a different date, so that
+ * a ban does not lock them out of viewing or making non-scheduling changes to
+ * their already-booked appointment.
+ */
+async function isBlockedByDropoffBan(db: D1Database, input: BookingInput) {
+  const user = await db.prepare(
+    "SELECT dropoff_banned AS dropoffBanned FROM users WHERE id = ?",
+  ).bind(input.userId).first<{ dropoffBanned: number }>();
+  if (user?.dropoffBanned !== 1) return false;
+
+  if (!input.appointmentId) return true;
+
+  const appointment = await db.prepare(
+    "SELECT appointment_date AS appointmentDate FROM appointments WHERE id = ? AND user_id = ?",
+  ).bind(input.appointmentId, input.userId).first<{ appointmentDate: string }>();
+  return !appointment || appointment.appointmentDate !== input.appointmentDate;
 }
 
 function validateInput(input: BookingInput) {
