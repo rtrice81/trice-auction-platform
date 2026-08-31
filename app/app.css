@@ -53,5 +53,5 @@ body {
   .ta-profile header > p:first-child, .ta-admin-page header > div > p:first-child { @apply text-[#9d302f]; }
   .ta-profile form > section, .ta-profile > div > section, .ta-admin-page section { @apply overflow-hidden rounded-xl border-[#dfe1e4] bg-[#f8f9fa] shadow-sm; }
   .ta-profile form > section > h2, .ta-profile > div > section > h2, .ta-admin-page section > h2 { @apply -mx-6 -mt-6 mb-5 bg-[#9d302f] px-6 py-3 text-lg font-bold text-white; }
-  .ta-profile button:not([data-confirm-dialog-trigger]), .ta-admin-page button[type="submit"] { @apply bg-[#9d302f] hover:bg-[#812625]; }
+  .ta-profile button:not([data-confirm-dialog-trigger]), .ta-admin-page button[type="submit"] { @apply bg-[#9d302f] !text-white hover:bg-[#812625] hover:!text-white active:!text-white; }
 }
