@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { data, Form, Link } from "react-router";
+import { data, Form, Link, redirect } from "react-router";
 import type { Route } from "./+types/manager.detail";
 import {
   createAppointmentOverrideAuditStatement,
@@ -63,6 +63,9 @@ export async function action({ request, params }: AppointmentDetailRequestArgs) 
   if (!appointment) throw new Response("Not Found", { status: 404 });
 
   const form = await request.formData();
+  const adminDetailPath = form.get("returnTo") === `/admin/appointments/${appointmentId}`
+    ? `/admin/appointments/${appointmentId}`
+    : null;
   if (form.get("cancel") === "1") {
     await env.trice_auction_db
       .prepare("UPDATE appointments SET status = 'cancelled' WHERE id = ?")
@@ -74,6 +77,7 @@ export async function action({ request, params }: AppointmentDetailRequestArgs) 
   const input = bookingInputFromForm(form, appointment);
   if (form.get("intent") !== "override") {
     const result = await createBooking(env.trice_auction_db, input);
+    if (result.ok && adminDetailPath) return redirect(`${adminDetailPath}?updated=1`);
     return data(result.ok ? result : { ...result, submitted: input });
   }
 
@@ -89,6 +93,7 @@ export async function action({ request, params }: AppointmentDetailRequestArgs) 
   const validation = await validateBooking(env.trice_auction_db, input);
   if (validation.ok) {
     const result = await createBooking(env.trice_auction_db, input);
+    if (result.ok && adminDetailPath) return redirect(`${adminDetailPath}?updated=1`);
     return data(result.ok ? result : { ...result, submitted: input });
   }
   if (!hasOnlyOverridableViolations(validation.errors, validation.overridableViolations)) {
@@ -125,6 +130,8 @@ export async function action({ request, params }: AppointmentDetailRequestArgs) 
     ...getBookingUpdateStatements(env.trice_auction_db, input, validation.dropoffType),
   ]);
 
+  if (adminDetailPath) return redirect(`${adminDetailPath}?updated=1`);
+
   return data({
     ok: true,
     message: "Appointment updated with a recorded capacity override.",
@@ -137,6 +144,7 @@ type AppointmentManagementDetailProps = Pick<
 > & {
   backTo?: string;
   backLabel?: string;
+  returnTo?: string;
 };
 
 export function AppointmentManagementDetail({
@@ -144,6 +152,7 @@ export function AppointmentManagementDetail({
   actionData,
   backTo = "/manager",
   backLabel = "← Manager",
+  returnTo,
 }: AppointmentManagementDetailProps) {
   const { appointment, options, allocations, overrideHistory } = loaderData;
   const validationFailure = actionData && "errors" in actionData ? actionData : null;
@@ -156,10 +165,10 @@ export function AppointmentManagementDetail({
     );
 
   return (
-    <main className="mx-auto max-w-4xl p-8">
-      <Link to={backTo}>{backLabel}</Link>
+    <main className="ta-page"><div className="max-w-4xl">
+      <Link to={backTo} className="ta-button ta-button-secondary">{backLabel}</Link>
 
-      <h1 className="mt-4 text-3xl font-bold">Appointment #{appointment.id}</h1>
+      <header className="mt-6 border-b border-[#d7d9dc] pb-6"><p className="ta-eyebrow">Appointment management</p><h1 className="text-3xl font-bold tracking-tight text-[#25272b]">Edit Appointment #{appointment.id}</h1></header>
 
       {actionData && actionData.ok ? <p role="status">{actionData.message}</p> : null}
       {validationFailure ? (
@@ -173,19 +182,20 @@ export function AppointmentManagementDetail({
         </section>
       ) : null}
 
-      <Form method="post" className="mt-5 space-y-3">
+      <Form method="post" className="mt-6 space-y-4 rounded-xl border border-[#dfe1e4] bg-[#f8f9fa] p-5 shadow-sm sm:p-6">
         <input type="hidden" name="intent" value="save" />
-        <input name="date" type="date" defaultValue={appointment.date} />
-        <input name="time" type="time" defaultValue={appointment.time || ""} />
-        <select name="typeId" defaultValue={appointment.typeId}>
+        {returnTo ? <input type="hidden" name="returnTo" value={returnTo} /> : null}
+        <label className="ta-field">Date<input name="date" type="date" defaultValue={appointment.date} /></label>
+        <label className="ta-field">Time<input name="time" type="time" defaultValue={appointment.time || ""} /></label>
+        <label className="ta-field">Load type<select name="typeId" defaultValue={appointment.typeId}>
           {options.dropoffTypes.map((type) => (
             <option key={type.id} value={type.id}>
               {type.name}
             </option>
           ))}
-        </select>
+        </select></label>
         {options.itemAreas.map((area) => (
-          <label key={area.id} className="block">
+          <label key={area.id} className="ta-field">
             {area.name}
             <input
               name={`allocation-${area.id}`}
@@ -195,8 +205,8 @@ export function AppointmentManagementDetail({
             />
           </label>
         ))}
-        <textarea name="description" defaultValue={appointment.description || ""} />
-        <button>Save</button>
+        <label className="ta-field">Description<textarea name="description" defaultValue={appointment.description || ""} /></label>
+        <button className="ta-button ta-button-primary">Save Changes</button>
       </Form>
 
       {canOverride ? (
@@ -211,6 +221,7 @@ export function AppointmentManagementDetail({
           </p>
           <Form method="post" className="mt-3 space-y-3">
             <input type="hidden" name="intent" value="override" />
+            {returnTo ? <input type="hidden" name="returnTo" value={returnTo} /> : null}
             <input type="hidden" name="date" value={validationFailure.submitted.appointmentDate} />
             <input type="hidden" name="time" value={validationFailure.submitted.appointmentTime || ""} />
             <input type="hidden" name="typeId" value={validationFailure.submitted.dropoffTypeId} />
@@ -234,7 +245,7 @@ export function AppointmentManagementDetail({
 
       <ConfirmationForm method="post" className="mt-4" confirmation={{ title: "Cancel drop-off appointment?", description: <><p>Are you sure you want to cancel this drop-off appointment?</p><p className="mt-2 text-sm">{appointment.customer} · {appointment.date} · {appointment.time || "Time TBD"}</p></>, confirmLabel: "Cancel appointment", destructive: true }}>
         <input type="hidden" name="cancel" value="1" />
-        <button>Cancel appointment</button>
+        <button className="ta-button ta-button-destructive">Cancel appointment</button>
       </ConfirmationForm>
 
       <section className="mt-10" aria-labelledby="override-history-heading">
@@ -277,7 +288,7 @@ export function AppointmentManagementDetail({
           </ol>
         )}
       </section>
-    </main>
+    </div></main>
   );
 }
 
