@@ -20,6 +20,12 @@
 			"database_name": "trice-auction-db",
 			"database_id": "6f82d71d-e82b-43ad-a0d4-d0164358764e"
 		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "branding_assets",
+			"bucket_name": "trice-auction-branding"
+		}
 	]
 	/**
 	 * Smart Placement

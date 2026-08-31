@@ -43,6 +43,13 @@ export const ADMIN_NAVIGATION: readonly AdminNavigationModule[] = [
       { label: "New Customer", path: "/admin/customers/new", module: "Users", group: "Users", allowedRoles: ["admin"], requiredPermission: "user:manage", displayOrder: 20 },
     ],
   },
+  {
+    label: "System",
+    displayOrder: 30,
+    items: [
+      { label: "Branding", path: "/admin/branding", module: "System", group: "System", allowedRoles: ["admin"], requiredPermission: "admin:access", displayOrder: 10 },
+    ],
+  },
 ];
 
 type PermissionCheck = (user: ApplicationUser, permission: string) => boolean;

@@ -11,6 +11,15 @@ cp .dev.vars.example .dev.vars
 - `AUTH_SECRET` — a high-entropy Better Auth signing secret; required in local and production environments.
 - `BETTER_AUTH_URL` — the public application URL used by Better Auth. Use `http://127.0.0.1:5173` locally and the deployed Workers URL in production.
 - `trice_auction_db` — the D1 binding declared in `wrangler.jsonc`; it is not a browser-visible variable.
+- `branding_assets` — the private R2 binding used for the uploaded site logo. Create the bucket once before local or production use; the Worker serves the logo and no R2 credentials are sent to the browser.
+
+Create the configured R2 bucket (change the name in `wrangler.jsonc` first if your environment needs a different name):
+
+```sh
+npx wrangler r2 bucket create trice-auction-branding
+```
+
+For local development, Wrangler provides the binding when `npm run dev` runs. Use `npx wrangler r2 object put trice-auction-branding/.keep --local --file public/favicon.ico` once if you need to initialize a local R2 data directory manually. Do not add R2 access keys, account credentials, or public bucket URLs to `.dev.vars` or client code.
 
 For production, configure secrets before deploy:
 
@@ -65,6 +74,7 @@ The production binding is `trice_auction_db`, configured for D1 database `trice-
 - Customer appointment loaders/actions enforce authenticated ownership.
 - Employee, manager, and admin routes/actions require server-side RBAC checks; actor identity never comes from forms.
 - Admin user, capacity, and schedule routes require `admin`; managers are not included.
+- Branding uploads and removals re-check `admin` in their server action. Logos are validated by both declared MIME type and image bytes, limited to 2 MB, stored with generated R2 keys, and only R2 metadata is retained in D1.
 - Inactive users resolve to no current user and cannot pass protected route checks.
 - Authentication secrets and the D1 binding are used only from server loaders/actions/services; production client bundles do not import `auth.server`.
 
@@ -77,3 +87,4 @@ The production binding is `trice_auction_db`, configured for D1 database `trice-
 - As employee, check in a scheduled appointment; confirm employee cannot open manager/admin pages.
 - As manager, edit an appointment; exceed capacity, then confirm an override requires a reason and creates history.
 - As admin, manage users, global capacity, and date-specific schedule capacity; reset a date to defaults.
+- As admin, upload a PNG/JPEG/WebP logo from **System → Branding**, confirm it appears in the header, replace it, then remove it and confirm text branding returns. Confirm an oversized or unsupported upload is rejected and that each non-admin role receives 403 for `/admin/branding` and its POST action.

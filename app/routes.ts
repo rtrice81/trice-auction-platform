@@ -13,6 +13,7 @@ export default [
   route("manager/:id", "routes/manager.detail.tsx"),
   route("change-password", "routes/change-password.tsx"),
   layout("routes/admin.layout.tsx", [
+    route("admin/branding", "routes/admin.branding.tsx"),
     route("admin/capacity", "routes/admin.capacity.tsx"),
     route("admin/users", "routes/admin.users.tsx"),
     route("admin/users/:id/edit", "routes/admin.users.edit.tsx"),
@@ -24,4 +25,5 @@ export default [
     route("admin/schedule/new", "routes/admin.schedule.new.tsx"),
     route("admin/schedule/:id", "routes/admin.schedule.detail.tsx"),
   ]),
+  route("branding/logo", "routes/branding.logo.ts"),
 ] satisfies RouteConfig;
