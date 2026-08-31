@@ -21,6 +21,7 @@ export type DropoffType = {
 export type AvailableDropoffDate = {
   date: string;
   eventName: string | null;
+  adminStatus?: string[];
 };
 
 export type BookingInput = {
@@ -88,7 +89,7 @@ export type BookingValidationResult =
 
 const ACTIVE_APPOINTMENT_STATUS = "scheduled";
 
-export async function getBookingOptions(db: D1Database, options: { includeInternal?: boolean } = {}) {
+export async function getBookingOptions(db: D1Database, options: { adminScheduling?: boolean } = {}) {
   const [dropoffTypesResult, itemAreasResult, datesResult] = await db.batch([
     db.prepare(
       `SELECT id, name, capacity_points AS capacityPoints
@@ -110,16 +111,20 @@ export async function getBookingOptions(db: D1Database, options: { includeIntern
        WHERE active = 1
        ORDER BY display_order ASC, name ASC`,
     ),
-    db.prepare(
-      `SELECT dropoff_date AS date, event_name AS eventName
-       FROM dropoff_days
-       WHERE is_open = 1 AND dropoff_date >= date('now')
-       ORDER BY dropoff_date ASC`,
+    db.prepare(options.adminScheduling
+      ? `SELECT day.dropoff_date AS date, day.event_name AS eventName, day.is_open AS dateOpen,
+                event.id AS bookingEventId, event.opens_at AS opensAt, event.closes_at AS closesAt, event.active AS eventActive
+           FROM dropoff_days day
+           LEFT JOIN booking_event_dropoff_dates link ON link.dropoff_day_id = day.id
+           LEFT JOIN booking_events event ON event.id = link.booking_event_id
+           WHERE day.dropoff_date >= date('now') ORDER BY day.dropoff_date ASC`
+      : `SELECT dropoff_date AS date, event_name AS eventName
+           FROM dropoff_days WHERE is_open = 1 AND dropoff_date >= date('now') ORDER BY dropoff_date ASC`,
     ),
   ]);
 
-  const availableDates = (datesResult.results as AvailableDropoffDate[]);
-  const eligibleDates = options.includeInternal ? availableDates : (await Promise.all(availableDates.map(async (date) => (await getBookableBookingEventForDate(db, date.date)).eligible ? date : null))).filter((date): date is AvailableDropoffDate => date !== null);
+  const availableDates = datesResult.results as Array<AvailableDropoffDate & { dateOpen?: number; bookingEventId?: number | null; opensAt?: string | null; closesAt?: string | null; eventActive?: number | null }>;
+  const eligibleDates = options.adminScheduling ? availableDates.map(adminDate => ({ date: adminDate.date, eventName: adminDate.eventName, adminStatus: getAdminDateStatus(adminDate) })) : (await Promise.all(availableDates.map(async (date) => (await getBookableBookingEventForDate(db, date.date)).eligible ? date : null))).filter((date): date is AvailableDropoffDate => date !== null);
   return {
     dropoffTypes: dropoffTypesResult.results as DropoffType[],
     itemAreas: itemAreasResult.results as ItemArea[],
@@ -127,7 +132,7 @@ export async function getBookingOptions(db: D1Database, options: { includeIntern
   };
 }
 
-export async function createBooking(db: D1Database, input: BookingInput, options: { allowInternalDate?: boolean } = {}): Promise<BookingResult> {
+export async function createBooking(db: D1Database, input: BookingInput, options: { allowAdminScheduling?: boolean } = {}): Promise<BookingResult> {
   const validation = await validateBooking(db, input, options);
   if (!validation.ok) return validation;
 
@@ -216,12 +221,12 @@ export async function createBookingWithOverride(
 export async function validateBooking(
   db: D1Database,
   input: BookingInput,
-  validationOptions: { allowInternalDate?: boolean } = {},
+  validationOptions: { allowAdminScheduling?: boolean } = {},
 ): Promise<BookingValidationResult> {
   const inputErrors = validateInput(input);
   if (inputErrors.length > 0) return validationFailure(inputErrors);
 
-  if (!validationOptions.allowInternalDate) {
+  if (!validationOptions.allowAdminScheduling) {
     const bookingEvent = await getBookableBookingEventForDate(db, input.appointmentDate);
     if (!bookingEvent.eligible) return validationFailure(["This drop-off date is not currently available for signup."]);
   }
@@ -282,6 +287,7 @@ export async function validateBooking(
     input.allocations,
     effectiveCapacity,
     input.appointmentId,
+    validationOptions.allowAdminScheduling === true,
   );
   const capacityContext: CapacityContext = {
     monthly: {
@@ -305,6 +311,17 @@ export async function validateBooking(
   }
 
   return { ok: true, dropoffType, capacityContext };
+}
+
+function getAdminDateStatus(date: AvailableDropoffDate & { dateOpen?: number; bookingEventId?: number | null; opensAt?: string | null; closesAt?: string | null; eventActive?: number | null }) {
+  const labels = [date.bookingEventId ? "Public" : "Private"];
+  if (!date.bookingEventId) { if (date.dateOpen !== 1) labels.push("Event closed"); return labels; }
+  if (date.eventActive !== 1) labels.push("Public signup inactive");
+  else if (date.opensAt && Date.now() < Date.parse(date.opensAt)) labels.push("Upcoming signup");
+  else if (date.closesAt && Date.now() >= Date.parse(date.closesAt)) labels.push("Public signup closed");
+  else labels.push("Public signup open");
+  if (date.dateOpen !== 1) labels.push("Event closed");
+  return labels;
 }
 
 export function getBookingUpdateStatements(
@@ -448,8 +465,9 @@ async function getCapacityEvaluation(
   allocations: BookingInput["allocations"],
   effectiveCapacity: EffectiveDateCapacity,
   excludedAppointmentId?: number,
+  allowClosedDate = false,
 ) {
-  if (!effectiveCapacity.isOpen) {
+  if (!effectiveCapacity.isOpen && !allowClosedDate) {
     return {
       errors: ["This drop-off date is not open for bookings."],
       overridableViolations: [],

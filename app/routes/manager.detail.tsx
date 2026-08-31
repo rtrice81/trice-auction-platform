@@ -45,7 +45,7 @@ export async function loader({ request, params }: AppointmentDetailRequestArgs) 
 
   const [allocationResult, options, overrideHistory] = await Promise.all([
     getAllocations(env.trice_auction_db, appointment.id),
-    getBookingOptions(env.trice_auction_db, { includeInternal: true }),
+    getBookingOptions(env.trice_auction_db),
     getAppointmentOverrideHistory(env.trice_auction_db, appointment.id),
   ]);
 
@@ -76,7 +76,7 @@ export async function action({ request, params }: AppointmentDetailRequestArgs) 
 
   const input = bookingInputFromForm(form, appointment);
   if (form.get("intent") !== "override") {
-    const result = await createBooking(env.trice_auction_db, input, { allowInternalDate: true });
+    const result = await createBooking(env.trice_auction_db, input);
     if (result.ok && adminDetailPath) return redirect(`${adminDetailPath}?updated=1`);
     return data(result.ok ? result : { ...result, submitted: input });
   }
@@ -90,9 +90,9 @@ export async function action({ request, params }: AppointmentDetailRequestArgs) 
   }
 
   // The current request is revalidated; no role, violation, or values are accepted from the client.
-  const validation = await validateBooking(env.trice_auction_db, input, { allowInternalDate: true });
+  const validation = await validateBooking(env.trice_auction_db, input);
   if (validation.ok) {
-    const result = await createBooking(env.trice_auction_db, input, { allowInternalDate: true });
+    const result = await createBooking(env.trice_auction_db, input);
     if (result.ok && adminDetailPath) return redirect(`${adminDetailPath}?updated=1`);
     return data(result.ok ? result : { ...result, submitted: input });
   }
