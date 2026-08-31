@@ -19,18 +19,21 @@ export async function loader({ request }: Route.LoaderArgs) {
   await requireRole(request, env.trice_auction_db, runtime, "admin");
   const defaults = await getEventFormDefaults(env.trice_auction_db);
   const bookingEventId = Number(new URL(request.url).searchParams.get("bookingEventId"));
-  const bookingEvent = Number.isInteger(bookingEventId) && bookingEventId > 0 ? await env.trice_auction_db.prepare("SELECT id, name FROM booking_events WHERE id = ?").bind(bookingEventId).first<{id:number;name:string}>() : null;
-  return { event: { date: today(), eventName: null, isOpen: false, note: null, ...defaults }, bookingEvent };
+  const [bookingEvent, bookingEvents] = await Promise.all([Number.isInteger(bookingEventId) && bookingEventId > 0 ? env.trice_auction_db.prepare("SELECT id, name FROM booking_events WHERE id = ?").bind(bookingEventId).first<{id:number;name:string}>() : null, env.trice_auction_db.prepare("SELECT id, name FROM booking_events ORDER BY opens_at DESC").all<{id:number;name:string}>()]);
+  return { event: { date: today(), eventName: null, visibility: bookingEvent ? "public" as const : "private" as const, isOpen: false, note: null, ...defaults }, bookingEvent, bookingEvents: bookingEvents.results };
 }
 
 export async function action({ request }: Route.ActionArgs) {
   await requireRole(request, env.trice_auction_db, runtime, "admin");
   const form = await request.formData();
   const bookingEventId = Number(form.get("bookingEventId"));
-  const result = await createDropoffEvent(env.trice_auction_db, dropoffEventInputFromForm(form));
+  const input = dropoffEventInputFromForm(form);
+  if (input.visibility === "public" && (!Number.isInteger(bookingEventId) || bookingEventId < 1)) return data({ ok: false as const, errors: ["Choose a Booking Event for a public Drop-Off Date."] }, { status: 400 });
+  if (input.visibility === "public") { const bookingEvent = await env.trice_auction_db.prepare("SELECT id FROM booking_events WHERE id = ?").bind(bookingEventId).first<{id:number}>(); if (!bookingEvent) return data({ ok: false as const, errors: ["Choose a valid Booking Event for this public date."] }, { status: 400 }); }
+  const result = await createDropoffEvent(env.trice_auction_db, input);
   if (!result.ok) return data(result, { status: 400 });
-  if (Number.isInteger(bookingEventId) && bookingEventId > 0) await env.trice_auction_db.prepare("INSERT INTO booking_event_dropoff_dates (booking_event_id, dropoff_day_id) VALUES (?, ?)").bind(bookingEventId, result.eventId).run();
-  return redirect(Number.isInteger(bookingEventId) && bookingEventId > 0 ? `/admin/booking-events/${bookingEventId}` : `/admin/schedule/${result.eventId}`);
+  if (input.visibility === "public") await env.trice_auction_db.prepare("INSERT INTO booking_event_dropoff_dates (booking_event_id, dropoff_day_id) VALUES (?, ?)").bind(bookingEventId, result.eventId).run();
+  return redirect(input.visibility === "public" ? `/admin/booking-events/${bookingEventId}` : `/admin/schedule/${result.eventId}`);
 }
 
 export default function NewDropoffEvent({ loaderData, actionData }: Route.ComponentProps) {
@@ -38,9 +41,9 @@ export default function NewDropoffEvent({ loaderData, actionData }: Route.Compon
     <main className="mx-auto max-w-5xl p-8">
       <Link to={loaderData.bookingEvent ? `/admin/booking-events/${loaderData.bookingEvent.id}` : "/admin/schedule"}>← {loaderData.bookingEvent ? loaderData.bookingEvent.name : "Drop-Off Events"}</Link>
       <h1 className="mt-4 text-3xl font-bold">New Drop-Off Event</h1>
-      <p className="mt-2 text-stone-600">Global capacity settings are pre-filled as a template. {loaderData.bookingEvent ? `This date will be added to ${loaderData.bookingEvent.name}.` : "Saving without a Booking Event creates a private/internal date that is not shown to customers."}</p>
+      <p className="mt-2 text-stone-600">Global capacity settings are pre-filled as a template. Public dates are added to a Booking Event; private/internal dates are available only for staff scheduling.</p>
       {actionData && !actionData.ok ? <p className="mt-4 rounded border border-red-200 bg-red-50 p-3" role="alert">{actionData.errors.join(" ")}</p> : null}
-      <Form method="post" className="mt-6 rounded border bg-white p-6">{loaderData.bookingEvent ? <input type="hidden" name="bookingEventId" value={loaderData.bookingEvent.id}/> : null}<DropoffEventForm event={loaderData.event} submitLabel="Save Drop-Off Event" /></Form>
+      <Form method="post" className="mt-6 rounded border bg-white p-6">{loaderData.bookingEvent ? <input type="hidden" name="bookingEventId" value={loaderData.bookingEvent.id}/> : <label className="mb-5 block text-sm font-semibold">Booking Event <span className="font-normal text-stone-500">(required only for Public visibility)</span><select name="bookingEventId" className="mt-1 block w-full rounded border border-stone-300 p-2"><option value="">No Booking Event — Private / Internal</option>{loaderData.bookingEvents.map(event => <option key={event.id} value={event.id}>{event.name}</option>)}</select></label>}<DropoffEventForm event={loaderData.event} submitLabel="Save Drop-Off Event" /></Form>
     </main>
   );
 }

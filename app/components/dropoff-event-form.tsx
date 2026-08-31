@@ -1,6 +1,7 @@
 type EventFormValues = {
   date: string;
   eventName: string | null;
+  visibility: "public" | "private";
   isOpen: boolean;
   note: string | null;
   dailyCapacityPoints: number;
@@ -25,6 +26,7 @@ export function DropoffEventForm({
     <div className="grid gap-5 md:grid-cols-2">
       {includeDate ? <label className="block text-sm font-semibold">Drop-off date<input required type="date" name="date" min={today()} defaultValue={event.date} className="mt-1 block w-full rounded border border-stone-300 bg-white p-2" /></label> : <input type="hidden" name="date" value={event.date} />}
       <label className="block text-sm font-semibold">Event / display name <span className="font-normal text-stone-500">(optional)</span><input name="eventName" defaultValue={event.eventName ?? ""} className="mt-1 block w-full rounded border border-stone-300 bg-white p-2" /></label>
+      <label className="block text-sm font-semibold">Visibility<select name="visibility" defaultValue={event.visibility} className="mt-1 block w-full rounded border border-stone-300 bg-white p-2"><option value="private">Private / Internal</option><option value="public">Public</option></select></label>
       <label className="block text-sm font-semibold">Booking status<select name="isOpen" defaultValue={String(event.isOpen)} className="mt-1 block w-full rounded border border-stone-300 bg-white p-2"><option value="true">Open for bookings</option><option value="false">Closed for bookings</option></select></label>
       <label className="block text-sm font-semibold">Daily intake capacity<input required name="dailyCapacityPoints" type="number" min="0" step="0.01" defaultValue={event.dailyCapacityPoints} className="mt-1 block w-full rounded border border-stone-300 bg-white p-2" /></label>
       <label className="block text-sm font-semibold md:col-span-2">Admin note <span className="font-normal text-stone-500">(optional)</span><textarea name="note" defaultValue={event.note ?? ""} className="mt-1 block min-h-24 w-full rounded border border-stone-300 bg-white p-2" /></label>

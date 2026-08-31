@@ -120,7 +120,7 @@ export async function getBookingOptions(db: D1Database, options: { adminScheduli
            LEFT JOIN booking_events event ON event.id = link.booking_event_id
            WHERE day.dropoff_date >= date('now') ORDER BY day.dropoff_date ASC`
       : `SELECT dropoff_date AS date, event_name AS eventName
-           FROM dropoff_days WHERE is_open = 1 AND dropoff_date >= date('now') ORDER BY dropoff_date ASC`,
+           FROM dropoff_days WHERE visibility = 'public' AND is_open = 1 AND dropoff_date >= date('now') ORDER BY dropoff_date ASC`,
     ),
   ]);
 
