@@ -26,7 +26,13 @@ export async function loader({ request }: Route.LoaderArgs) {
     getBookingOptions(env.trice_auction_db),
     user ? getPendingBooking(env.trice_auction_db, token) : Promise.resolve(null),
   ]);
-  return { ...options, pendingBooking, resumed: Boolean(user && pendingBooking) };
+  return {
+    dropoffTypes: options.dropoffTypes.map(({ id, name }) => ({ id, name })),
+    itemAreas: options.itemAreas.map(({ id, name }) => ({ id, name })),
+    availableDates: options.availableDates,
+    pendingBooking,
+    resumed: Boolean(user && pendingBooking),
+  };
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -101,9 +107,6 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
                     className="sr-only"
                   />
                   <span className="block text-xl font-semibold text-stone-950">{dropoffType.name}</span>
-                  <span className="mt-2 block text-sm leading-6 text-stone-600">
-                    {dropoffType.capacityPoints} intake points will be allocated across your item areas.
-                  </span>
                 </label>
               ))}
             </div></PageCard></fieldset>

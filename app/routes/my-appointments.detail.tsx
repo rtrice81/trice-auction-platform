@@ -30,7 +30,16 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       .bind(appointment.id)
       .all<any>()
   ).results;
-  return { appointment, allocations, options: await getBookingOptions(env.trice_auction_db) };
+  const options = await getBookingOptions(env.trice_auction_db);
+  return {
+    appointment,
+    allocations,
+    options: {
+      dropoffTypes: options.dropoffTypes.map(({ id, name }) => ({ id, name })),
+      itemAreas: options.itemAreas.map(({ id, name }) => ({ id, name })),
+      availableDates: options.availableDates,
+    },
+  };
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
