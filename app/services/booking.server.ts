@@ -1,5 +1,6 @@
 import { getEffectiveDateCapacity, type EffectiveDateCapacity } from "./date-capacity.server";
 import { getBookableBookingEventForDate } from "./booking-event.server";
+import { bookingEventInstant } from "../lib/booking-event-time";
 
 export type ItemArea = {
   id: number;
@@ -113,7 +114,7 @@ export async function getBookingOptions(db: D1Database, options: { adminScheduli
     ),
     db.prepare(options.adminScheduling
       ? `SELECT day.dropoff_date AS date, day.event_name AS eventName, day.is_open AS dateOpen,
-                event.id AS bookingEventId, event.opens_at AS opensAt, event.closes_at AS closesAt, event.active AS eventActive
+                event.id AS bookingEventId, event.opens_at AS opensAt, event.closes_at AS closesAt, event.timestamp_storage_version AS timeStorageVersion, event.timezone, event.active AS eventActive
            FROM dropoff_days day
            LEFT JOIN booking_event_dropoff_dates link ON link.dropoff_day_id = day.id
            LEFT JOIN booking_events event ON event.id = link.booking_event_id
@@ -123,7 +124,7 @@ export async function getBookingOptions(db: D1Database, options: { adminScheduli
     ),
   ]);
 
-  const availableDates = datesResult.results as Array<AvailableDropoffDate & { dateOpen?: number; bookingEventId?: number | null; opensAt?: string | null; closesAt?: string | null; eventActive?: number | null }>;
+  const availableDates = datesResult.results as Array<AvailableDropoffDate & { dateOpen?: number; bookingEventId?: number | null; opensAt?: string | null; closesAt?: string | null; timeStorageVersion?: number | null; timezone?: string | null; eventActive?: number | null }>;
   const eligibleDates = options.adminScheduling ? availableDates.map(adminDate => ({ date: adminDate.date, eventName: adminDate.eventName, adminStatus: getAdminDateStatus(adminDate) })) : (await Promise.all(availableDates.map(async (date) => (await getBookableBookingEventForDate(db, date.date)).eligible ? date : null))).filter((date): date is AvailableDropoffDate => date !== null);
   return {
     dropoffTypes: dropoffTypesResult.results as DropoffType[],
@@ -313,12 +314,14 @@ export async function validateBooking(
   return { ok: true, dropoffType, capacityContext };
 }
 
-function getAdminDateStatus(date: AvailableDropoffDate & { dateOpen?: number; bookingEventId?: number | null; opensAt?: string | null; closesAt?: string | null; eventActive?: number | null }) {
+function getAdminDateStatus(date: AvailableDropoffDate & { dateOpen?: number; bookingEventId?: number | null; opensAt?: string | null; closesAt?: string | null; timeStorageVersion?: number | null; timezone?: string | null; eventActive?: number | null }) {
   const labels = [date.bookingEventId ? "Public" : "Private"];
   if (!date.bookingEventId) { if (date.dateOpen !== 1) labels.push("Event closed"); return labels; }
+  const opensAt = date.opensAt ? bookingEventInstant(date.opensAt, date.timezone ?? undefined, date.timeStorageVersion) : null;
+  const closesAt = date.closesAt ? bookingEventInstant(date.closesAt, date.timezone ?? undefined, date.timeStorageVersion) : null;
   if (date.eventActive !== 1) labels.push("Public signup inactive");
-  else if (date.opensAt && Date.now() < Date.parse(date.opensAt)) labels.push("Upcoming signup");
-  else if (date.closesAt && Date.now() >= Date.parse(date.closesAt)) labels.push("Public signup closed");
+  else if (opensAt && Date.now() < opensAt.getTime()) labels.push("Upcoming signup");
+  else if (closesAt && Date.now() >= closesAt.getTime()) labels.push("Public signup closed");
   else labels.push("Public signup open");
   if (date.dateOpen !== 1) labels.push("Event closed");
   return labels;
