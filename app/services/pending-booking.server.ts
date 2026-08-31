@@ -20,7 +20,16 @@ export function pendingBookingFromForm(form: FormData): PendingBooking {
   };
 }
 
-export async function createPendingBooking(db: D1Database, booking: PendingBooking) {
+export async function createPendingBooking(db: D1Database, booking: PendingBooking, existingToken: string | null = null) {
+  if (existingToken) {
+    const updated = await db.prepare(
+      `UPDATE pending_booking_requests
+       SET booking_json = ?, expires_at = datetime('now', '+2 hours')
+       WHERE token = ? AND expires_at > CURRENT_TIMESTAMP`,
+    ).bind(JSON.stringify(booking), existingToken).run();
+    if (updated.meta.changes === 1) return existingToken;
+  }
+
   const token = randomToken();
   await db.batch([
     db.prepare("DELETE FROM pending_booking_requests WHERE expires_at <= CURRENT_TIMESTAMP"),

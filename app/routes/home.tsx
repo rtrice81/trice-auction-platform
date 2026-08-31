@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
-import { data, Form, Link, redirect } from "react-router";
+import { data, Form, Link, redirect, useNavigation } from "react-router";
+import { useState } from "react";
 
 import type { Route } from "./+types/home";
 import { createBooking, getBookingOptions } from "../services/booking.server";
@@ -7,6 +8,7 @@ import { getCurrentUser } from "../services/auth.server";
 import { clearPendingBookingCookie, createPendingBooking, deletePendingBooking, getPendingBooking, getPendingBookingToken, pendingBookingCookie, pendingBookingFromForm } from "../services/pending-booking.server";
 import { bookingSuccessFlashCookie, createBookingSuccessFlash } from "../services/booking-success-flash.server";
 import { Button, Notice, PageCard, PageIntro, PageShell } from "../components/design-system";
+import { PendingBookingDialog } from "../components/pending-booking-dialog";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -40,8 +42,8 @@ export async function action({ request }: Route.ActionArgs) {
   const pendingBooking = pendingBookingFromForm(formData);
   const user = await getCurrentUser(request, env.trice_auction_db, env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string });
   if (!user) {
-    const token = await createPendingBooking(env.trice_auction_db, pendingBooking);
-    return data({ ok: false as const, requiresAuthentication: true, errors: [] as string[] }, { headers: { "Set-Cookie": pendingBookingCookie(token, request) } });
+    const token = await createPendingBooking(env.trice_auction_db, pendingBooking, getPendingBookingToken(request));
+    return data({ ok: false as const, requiresAuthentication: true, errors: [] as string[], submitted: pendingBooking }, { headers: { "Set-Cookie": pendingBookingCookie(token, request) } });
   }
 
   const result = await createBooking(env.trice_auction_db, {
@@ -63,13 +65,16 @@ export async function action({ request }: Route.ActionArgs) {
 export default function Home({ loaderData, actionData }: Route.ComponentProps) {
   const booking = actionData && "submitted" in actionData ? actionData.submitted : loaderData.pendingBooking;
   const needsAuthentication = Boolean(actionData && "requiresAuthentication" in actionData && actionData.requiresAuthentication);
+  const [dismissedAccountPrompt, setDismissedAccountPrompt] = useState(false);
+  const navigation = useNavigation();
+  const submitting = navigation.state !== "idle";
   return (
     <PageShell><div className="max-w-5xl">
         <PageIntro eyebrow="Drop-off appointments" title="Schedule a Consignment Drop-Off">Choose your load and tell us how it is divided between our intake areas. Current capacity is confirmed when you submit your request.</PageIntro>
 
         {loaderData.resumed ? <Notice variant="warning"><p className="font-semibold">Your pending booking has been restored.</p><p className="mt-1">Availability will be checked again when you submit.</p></Notice> : null}
 
-        {needsAuthentication ? <Notice variant="warning"><p className="font-semibold">An account is required to complete this request.</p><p className="mt-1">Your booking details are saved securely for two hours. Sign in or create an account to continue.</p><div className="mt-4 flex flex-wrap gap-3"><Link to="/login" className="ta-button ta-button-primary">Log in</Link><Link to="/register" className="ta-button ta-button-secondary">Create account</Link></div></Notice> : null}
+        {needsAuthentication ? <noscript><Notice variant="warning"><p className="font-semibold">You’re almost done</p><p className="mt-1">An account is required to complete your drop-off request. Your appointment details have been saved for two hours.</p><div className="mt-4 flex flex-wrap gap-3"><Link to="/login" className="ta-button ta-button-primary">Log In</Link><Link to="/register" className="ta-button ta-button-secondary">Create Account</Link></div></Notice></noscript> : null}
 
         {actionData && !actionData.ok && !needsAuthentication ? (
           <Notice variant="error">
@@ -147,8 +152,9 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
             />
           </label>
 
-          <Button type="submit" disabled={loaderData.availableDates.length === 0}>Request drop-off appointment</Button>
+          <Button type="submit" disabled={loaderData.availableDates.length === 0 || submitting}>{submitting ? "Saving your request…" : "Request drop-off appointment"}</Button>
         </Form>
+        <PendingBookingDialog open={needsAuthentication && !dismissedAccountPrompt} onClose={() => setDismissedAccountPrompt(true)} />
       </div>
     </PageShell>
   );
