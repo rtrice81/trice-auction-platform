@@ -29,7 +29,7 @@ export const ADMIN_NAVIGATION: readonly AdminNavigationModule[] = [
     displayOrder: 10,
     items: [
       { label: "Schedule", path: "/admin/schedule", module: "Drop-Offs", group: "Drop-Offs", allowedRoles: ["admin"], requiredPermission: "admin:access", displayOrder: 10 },
-      { label: "Booking Releases", path: "/admin/booking-releases", module: "Drop-Offs", group: "Drop-Offs", allowedRoles: ["admin"], requiredPermission: "admin:access", displayOrder: 15 },
+      { label: "Booking Events", path: "/admin/booking-events", module: "Drop-Offs", group: "Drop-Offs", allowedRoles: ["admin"], requiredPermission: "admin:access", displayOrder: 15 },
       { label: "New Drop-Off Date", path: "/admin/schedule/new", module: "Drop-Offs", group: "Drop-Offs", allowedRoles: ["admin"], requiredPermission: "admin:access", displayOrder: 20 },
       { label: "Appointments", path: "/admin/appointments", module: "Drop-Offs", group: "Drop-Offs", allowedRoles: ["admin"], requiredPermission: "appointment:manage-all", displayOrder: 30 },
       { label: "New Appointment", path: "/admin/appointments/new", module: "Drop-Offs", group: "Drop-Offs", allowedRoles: ["admin"], requiredPermission: "appointment:manage-all", displayOrder: 40 },

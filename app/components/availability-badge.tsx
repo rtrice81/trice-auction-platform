@@ -1,4 +1,4 @@
-import type { CustomerAvailability } from "../services/booking-release.server";
+import type { CustomerAvailability } from "../services/booking-event.server";
 
 const styles: Record<CustomerAvailability, string> = {
   Available: "bg-emerald-100 text-emerald-900",

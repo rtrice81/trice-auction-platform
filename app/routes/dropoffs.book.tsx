@@ -7,7 +7,7 @@ import { getCurrentUser } from "../services/auth.server";
 import { clearPendingBookingCookie, createPendingBooking, deletePendingBooking, getPendingBooking, getPendingBookingToken, pendingBookingCookie, pendingBookingFromForm } from "../services/pending-booking.server";
 import { bookingSuccessFlashCookie, createBookingSuccessFlash } from "../services/booking-success-flash.server";
 import { createPublicFormStart, verifyPublicFormSubmission } from "../services/public-form-protection.server";
-import { getCustomerDropoffEventById } from "../services/booking-release.server";
+import { getCustomerDropoffDateById } from "../services/booking-event.server";
 import { CustomerBookingForm } from "../components/customer-booking-form";
 import { formatDropoffDate } from "../components/dropoff-event-card";
 import { AvailabilityBadge } from "../components/availability-badge";
@@ -21,20 +21,20 @@ export function meta({}: Route.MetaArgs) { return [{ title: "Request a Drop-Off 
 export async function loader({ request, params }: Route.LoaderArgs) {
   const eventId = Number(params.eventId);
   if (!Number.isInteger(eventId) || eventId < 1) throw data("Drop-Off Event not found.", { status: 404 });
-  const [user, selected] = await Promise.all([getCurrentUser(request, env.trice_auction_db, runtime), getCustomerDropoffEventById(env.trice_auction_db, eventId)]);
+  const [user, selected] = await Promise.all([getCurrentUser(request, env.trice_auction_db, runtime), getCustomerDropoffDateById(env.trice_auction_db, eventId)]);
   if (!selected) throw data("Drop-Off Event not found.", { status: 404 });
   const pendingBooking = user ? await getPendingBooking(env.trice_auction_db, getPendingBookingToken(request)) : null;
-  const protection = user || !selected.event.bookable ? null : await createPublicFormStart(request, "public-booking", runtime);
-  const options = selected.event.bookable ? await getBookingOptions(env.trice_auction_db) : null;
-  return data({ selected, pendingBooking: pendingBooking?.appointmentDate === selected.event.eventDate ? pendingBooking : null, resumed: new URL(request.url).searchParams.get("resume") === "1" && Boolean(pendingBooking), isAuthenticated: Boolean(user), turnstileSiteKey: runtime.TURNSTILE_SITE_KEY ?? "", formStartToken: protection?.token ?? "", dropoffTypes: options?.dropoffTypes.map(({ id, name }) => ({ id, name })) ?? [], itemAreas: options?.itemAreas.map(({ id, name }) => ({ id, name })) ?? [] }, protection ? { headers: protection.headers } : undefined);
+  const protection = user || !selected.date.bookable ? null : await createPublicFormStart(request, "public-booking", runtime);
+  const options = selected.date.bookable ? await getBookingOptions(env.trice_auction_db) : null;
+  return data({ selected, pendingBooking: pendingBooking?.appointmentDate === selected.date.eventDate ? pendingBooking : null, resumed: new URL(request.url).searchParams.get("resume") === "1" && Boolean(pendingBooking), isAuthenticated: Boolean(user), turnstileSiteKey: runtime.TURNSTILE_SITE_KEY ?? "", formStartToken: protection?.token ?? "", dropoffTypes: options?.dropoffTypes.map(({ id, name }) => ({ id, name })) ?? [], itemAreas: options?.itemAreas.map(({ id, name }) => ({ id, name })) ?? [] }, protection ? { headers: protection.headers } : undefined);
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
   const eventId = Number(params.eventId);
-  const selected = Number.isInteger(eventId) ? await getCustomerDropoffEventById(env.trice_auction_db, eventId) : null;
-  if (!selected || !selected.event.bookable) return data({ ok: false as const, requiresAuthentication: false, errors: ["This drop-off event is not currently available for signup."] }, { status: 400 });
+  const selected = Number.isInteger(eventId) ? await getCustomerDropoffDateById(env.trice_auction_db, eventId) : null;
+  if (!selected || !selected.date.bookable) return data({ ok: false as const, requiresAuthentication: false, errors: ["This drop-off date is not currently available for signup."] }, { status: 400 });
   const formData = await request.formData();
-  const pendingBooking = { ...pendingBookingFromForm(formData), appointmentDate: selected.event.eventDate };
+  const pendingBooking = { ...pendingBookingFromForm(formData), appointmentDate: selected.date.eventDate };
   const user = await getCurrentUser(request, env.trice_auction_db, runtime);
   if (!user) {
     if (!hasBasicPublicBookingFields(pendingBooking)) return data({ ok: false as const, requiresAuthentication: false, errors: ["We couldn’t verify this submission. Please try again."], submitted: pendingBooking }, { status: 400 });
@@ -56,8 +56,8 @@ export default function BookDropoff({ loaderData, actionData }: Route.ComponentP
   const booking = actionData && "submitted" in actionData ? actionData.submitted : loaderData.pendingBooking;
   const needsAuthentication = Boolean(actionData && "requiresAuthentication" in actionData && actionData.requiresAuthentication);
   const [dismissedAccountPrompt, setDismissedAccountPrompt] = useState(false);
-  const { event, release } = loaderData.selected;
-  return <PageShell><div className="max-w-5xl"><Link to="/" className="text-sm font-bold text-[#9d302f] underline underline-offset-4">← All drop-off dates</Link><PageIntro eyebrow={release.name} title="Request a Drop-Off Appointment">Complete the details below for your selected drop-off event.</PageIntro>
+  const { date: event, bookingEvent } = loaderData.selected;
+  return <PageShell><div className="max-w-5xl"><Link to="/" className="text-sm font-bold text-[#9d302f] underline underline-offset-4">← All drop-off dates</Link><PageIntro eyebrow={bookingEvent.name} title="Request a Drop-Off Appointment">Complete the details below for your selected drop-off date.</PageIntro>
     <PageCard title="Selected Drop-Off Event"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xl font-bold text-[#25272b]">{formatDropoffDate(event.eventDate)}</p>{event.eventName ? <p className="mt-1 text-[#5f6368]">{event.eventName}</p> : null}</div><AvailabilityBadge label={event.availability}/></div></PageCard>
     {loaderData.resumed ? <Notice variant="warning"><p className="font-semibold">Your pending booking has been restored.</p><p className="mt-1">Availability will be checked again when you submit.</p></Notice> : null}
     {actionData && !actionData.ok && !needsAuthentication ? <Notice variant="error"><p className="font-semibold">We could not schedule this drop-off.</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm">{actionData.errors.map((error) => <li key={error}>{error}</li>)}</ul></Notice> : null}

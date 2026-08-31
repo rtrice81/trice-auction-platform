@@ -1,0 +1,66 @@
+export type BookingEventStatus = "upcoming" | "open" | "closed" | "full" | "inactive";
+export type CustomerAvailability = "Available" | "Limited Availability" | "Nearly Full" | "Full" | "Signup Not Open Yet" | "Closed";
+
+export type CustomerDropoffDate = { eventId: number; eventDate: string; eventName: string | null; isOpen: boolean; bookable: boolean; availability: CustomerAvailability };
+export type CustomerBookingEvent = { id: number; name: string; description: string | null; opensAt: string; closesAt: string | null; timezone: string; active: boolean; status: BookingEventStatus; dates: CustomerDropoffDate[] };
+type BookingEventRow = { bookingEventId: number; name: string; description: string | null; opensAt: string; closesAt: string | null; timezone: string; active: number; eventId: number; eventDate: string; eventName: string | null; eventOpen: number };
+
+export async function getBookableBookingEventForDate(db: D1Database, date: string, now = new Date()) {
+  const row = await db.prepare(`SELECT event.id, event.name, event.opens_at AS opensAt, event.closes_at AS closesAt, event.timezone, event.active FROM dropoff_days day LEFT JOIN booking_event_dropoff_dates link ON link.dropoff_day_id = day.id LEFT JOIN booking_events event ON event.id = link.booking_event_id WHERE day.dropoff_date = ?`).bind(date).first<{ id: number | null; name: string | null; opensAt: string | null; closesAt: string | null; timezone: string | null; active: number | null }>();
+  if (!row?.id || row.active !== 1 || !row.opensAt) return { eligible: false, status: row?.id ? "inactive" as const : "inactive" as const, bookingEvent: row };
+  if (now.getTime() < Date.parse(row.opensAt)) return { eligible: false, status: "upcoming" as const, bookingEvent: row };
+  if (row.closesAt && now.getTime() >= Date.parse(row.closesAt)) return { eligible: false, status: "closed" as const, bookingEvent: row };
+  return { eligible: true, status: "open" as const, bookingEvent: row };
+}
+
+export async function getCustomerBookingEvents(db: D1Database, now = new Date()): Promise<CustomerBookingEvent[]> {
+  const { results } = await db.prepare(`SELECT event.id AS bookingEventId, event.name, event.description, event.opens_at AS opensAt, event.closes_at AS closesAt, event.timezone, event.active, day.id AS eventId, day.dropoff_date AS eventDate, day.event_name AS eventName, day.is_open AS eventOpen FROM booking_events event JOIN booking_event_dropoff_dates link ON link.booking_event_id = event.id JOIN dropoff_days day ON day.id = link.dropoff_day_id WHERE event.active = 1 AND day.dropoff_date >= ? ORDER BY event.opens_at ASC, day.dropoff_date ASC`).bind(today(now)).all<BookingEventRow>();
+  return groupCustomerBookingEventRows(db, results, now);
+}
+
+export async function getCustomerDropoffDateById(db: D1Database, eventId: number, now = new Date()) {
+  const row = await db.prepare(`SELECT event.id AS bookingEventId, event.name, event.description, event.opens_at AS opensAt, event.closes_at AS closesAt, event.timezone, event.active, day.id AS eventId, day.dropoff_date AS eventDate, day.event_name AS eventName, day.is_open AS eventOpen FROM booking_events event JOIN booking_event_dropoff_dates link ON link.booking_event_id = event.id JOIN dropoff_days day ON day.id = link.dropoff_day_id WHERE event.active = 1 AND day.id = ? AND day.dropoff_date >= ?`).bind(eventId, today(now)).first<BookingEventRow>();
+  if (!row) return null;
+  const [bookingEvent] = await groupCustomerBookingEventRows(db, [row], now);
+  return bookingEvent ? { bookingEvent, date: bookingEvent.dates[0] } : null;
+}
+
+export async function getCustomerDropoffDateForDate(db: D1Database, date: string, now = new Date()) {
+  const bookingEvents = await getCustomerBookingEvents(db, now);
+  for (const bookingEvent of bookingEvents) { const dropoffDate = bookingEvent.dates.find((candidate) => candidate.eventDate === date); if (dropoffDate) return { bookingEvent, date: dropoffDate }; }
+  return null;
+}
+
+async function groupCustomerBookingEventRows(db: D1Database, rows: BookingEventRow[], now: Date): Promise<CustomerBookingEvent[]> {
+  const details = await Promise.all(rows.map(async (row) => ({ row, availability: await getDateAvailability(db, row, now) })));
+  const grouped = new Map<number, CustomerBookingEvent>();
+  for (const { row, availability } of details) {
+    let bookingEvent = grouped.get(row.bookingEventId);
+    if (!bookingEvent) { bookingEvent = { id: row.bookingEventId, name: row.name, description: row.description, opensAt: row.opensAt, closesAt: row.closesAt, timezone: row.timezone, active: row.active === 1, status: getBookingEventStatus(row, now), dates: [] }; grouped.set(row.bookingEventId, bookingEvent); }
+    bookingEvent.dates.push({ eventId: row.eventId, eventDate: row.eventDate, eventName: row.eventName, isOpen: row.eventOpen === 1, ...availability });
+  }
+  return [...grouped.values()].map((bookingEvent) => bookingEvent.status === "open" && bookingEvent.dates.length > 0 && bookingEvent.dates.every((date) => date.availability === "Full") ? { ...bookingEvent, status: "full" } : bookingEvent);
+}
+
+function getBookingEventStatus(row: Pick<BookingEventRow, "opensAt" | "closesAt" | "active">, now: Date): BookingEventStatus { if (row.active !== 1) return "inactive"; if (now.getTime() < Date.parse(row.opensAt)) return "upcoming"; if (row.closesAt && now.getTime() >= Date.parse(row.closesAt)) return "closed"; return "open"; }
+async function getDateAvailability(db: D1Database, row: BookingEventRow, now: Date): Promise<Pick<CustomerDropoffDate, "bookable" | "availability">> {
+  const status = getBookingEventStatus(row, now);
+  if (status === "upcoming") return { bookable: false, availability: "Signup Not Open Yet" };
+  if (status !== "open" || row.eventOpen !== 1) return { bookable: false, availability: "Closed" };
+  const capacity = await getEventCapacitySnapshot(db, row.eventId, row.eventDate);
+  if (!capacity.bookable) return { bookable: false, availability: "Full" };
+  if (capacity.remainingRatio <= .1) return { bookable: true, availability: "Nearly Full" };
+  if (capacity.remainingRatio <= .35) return { bookable: true, availability: "Limited Availability" };
+  return { bookable: true, availability: "Available" };
+}
+async function getEventCapacitySnapshot(db: D1Database, eventId: number, eventDate: string) {
+  const [event, settingsResult, typesResult, areasResult, dailyUsage, areaUsage] = await db.batch([
+    db.prepare("SELECT capacity_points AS capacityPoints, daily_capacity_override AS dailyCapacityOverride FROM dropoff_days WHERE id = ?").bind(eventId), db.prepare("SELECT value FROM settings WHERE key = 'default_daily_intake_capacity'"), db.prepare("SELECT capacity_points AS capacityPoints FROM dropoff_types WHERE active = 1"),
+    db.prepare(`SELECT area.id, COALESCE(override.capacity_points_override, area.normal_capacity_points) AS capacityPoints, COALESCE(override.overflow_allowance_points_override, area.overflow_allowance_points) AS overflowPoints FROM item_areas area LEFT JOIN dropoff_day_area_overrides override ON override.item_area_id = area.id AND override.dropoff_day_id = ? WHERE area.active = 1`).bind(eventId),
+    db.prepare(`SELECT COALESCE(SUM(type.capacity_points), 0) AS usedPoints FROM appointments appointment JOIN dropoff_types type ON type.id = appointment.dropoff_type_id WHERE appointment.appointment_date = ? AND appointment.status = 'scheduled'`).bind(eventDate), db.prepare(`SELECT allocation.item_area_id AS itemAreaId, COALESCE(SUM(allocation.capacity_points), 0) AS usedPoints FROM appointment_area_allocations allocation JOIN appointments appointment ON appointment.id = allocation.appointment_id WHERE appointment.appointment_date = ? AND appointment.status = 'scheduled' GROUP BY allocation.item_area_id`).bind(eventDate),
+  ]);
+  const eventRow = event.results[0] as { capacityPoints: number | null; dailyCapacityOverride: number | null } | undefined; const totalCapacity = eventRow?.dailyCapacityOverride ?? eventRow?.capacityPoints ?? Number((settingsResult.results[0] as { value?: string } | undefined)?.value); const usedDaily = Number((dailyUsage.results[0] as { usedPoints?: number } | undefined)?.usedPoints ?? 0); const remainingDaily = Math.max(0, totalCapacity - usedDaily);
+  const usedByArea = new Map((areaUsage.results as Array<{ itemAreaId: number; usedPoints: number }>).map((usage) => [usage.itemAreaId, usage.usedPoints])); const areas = areasResult.results as Array<{ id: number; capacityPoints: number; overflowPoints: number }>; const types = typesResult.results as Array<{ capacityPoints: number }>; const remaining = areas.map((area) => Math.max(0, area.capacityPoints + area.overflowPoints - (usedByArea.get(area.id) ?? 0)));
+  const bookable = Number.isFinite(totalCapacity) && types.some((type) => type.capacityPoints <= remainingDaily && remaining.some((capacity) => type.capacityPoints <= capacity)); const dailyRatio = totalCapacity > 0 ? remainingDaily / totalCapacity : 0; const bestAreaRatio = Math.max(0, ...areas.map((area, index) => area.capacityPoints + area.overflowPoints > 0 ? remaining[index] / (area.capacityPoints + area.overflowPoints) : 0)); return { bookable, remainingRatio: Math.min(dailyRatio, bestAreaRatio) };
+}
+function today(now: Date) { return now.toISOString().slice(0, 10); }

@@ -1,5 +1,5 @@
 import { getEffectiveDateCapacity, type EffectiveDateCapacity } from "./date-capacity.server";
-import { getBookableReleaseForDate } from "./booking-release.server";
+import { getBookableBookingEventForDate } from "./booking-event.server";
 
 export type ItemArea = {
   id: number;
@@ -88,7 +88,7 @@ export type BookingValidationResult =
 
 const ACTIVE_APPOINTMENT_STATUS = "scheduled";
 
-export async function getBookingOptions(db: D1Database) {
+export async function getBookingOptions(db: D1Database, options: { includeInternal?: boolean } = {}) {
   const [dropoffTypesResult, itemAreasResult, datesResult] = await db.batch([
     db.prepare(
       `SELECT id, name, capacity_points AS capacityPoints
@@ -119,16 +119,16 @@ export async function getBookingOptions(db: D1Database) {
   ]);
 
   const availableDates = (datesResult.results as AvailableDropoffDate[]);
-  const eligibleDates = await Promise.all(availableDates.map(async (date) => (await getBookableReleaseForDate(db, date.date)).eligible ? date : null));
+  const eligibleDates = options.includeInternal ? availableDates : (await Promise.all(availableDates.map(async (date) => (await getBookableBookingEventForDate(db, date.date)).eligible ? date : null))).filter((date): date is AvailableDropoffDate => date !== null);
   return {
     dropoffTypes: dropoffTypesResult.results as DropoffType[],
     itemAreas: itemAreasResult.results as ItemArea[],
-    availableDates: eligibleDates.filter((date): date is AvailableDropoffDate => date !== null),
+    availableDates: eligibleDates,
   };
 }
 
-export async function createBooking(db: D1Database, input: BookingInput): Promise<BookingResult> {
-  const validation = await validateBooking(db, input);
+export async function createBooking(db: D1Database, input: BookingInput, options: { allowInternalDate?: boolean } = {}): Promise<BookingResult> {
+  const validation = await validateBooking(db, input, options);
   if (!validation.ok) return validation;
 
   const appointmentId = input.appointmentId;
@@ -216,12 +216,15 @@ export async function createBookingWithOverride(
 export async function validateBooking(
   db: D1Database,
   input: BookingInput,
+  validationOptions: { allowInternalDate?: boolean } = {},
 ): Promise<BookingValidationResult> {
   const inputErrors = validateInput(input);
   if (inputErrors.length > 0) return validationFailure(inputErrors);
 
-  const release = await getBookableReleaseForDate(db, input.appointmentDate);
-  if (!release.eligible) return validationFailure(["This drop-off date is not currently available for signup."]);
+  if (!validationOptions.allowInternalDate) {
+    const bookingEvent = await getBookableBookingEventForDate(db, input.appointmentDate);
+    if (!bookingEvent.eligible) return validationFailure(["This drop-off date is not currently available for signup."]);
+  }
 
   if (await isBlockedByDropoffBan(db, input)) {
     return validationFailure(["You are currently unable to schedule a drop-off."]);
