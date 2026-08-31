@@ -58,7 +58,7 @@ export default function AdminBranding({ loaderData, actionData }: Route.Componen
           <div className="mt-5 flex min-h-28 items-center rounded-xl border border-dashed border-stone-300 bg-stone-50 p-5">
             {loaderData.logo ? <img src={`/branding/logo?v=${encodeURIComponent(loaderData.logo.updatedAt)}`} alt="Current Trice Auctions logo" className="max-h-20 max-w-72 object-contain" /> : <span className="font-bold text-stone-900">Trice Auctions</span>}
           </div>
-          {loaderData.logo ? <Form method="post" className="mt-5"><input type="hidden" name="intent" value="remove" /><button type="submit" className="rounded-lg border border-red-300 px-4 py-2.5 text-sm font-semibold text-red-800 hover:bg-red-50">Remove logo</button></Form> : null}
+          {loaderData.logo ? <Form method="post" className="mt-5"><input type="hidden" name="intent" value="remove" /><button type="submit" className="rounded-lg border border-red-300 px-4 py-2.5 text-sm font-semibold !text-[#9d302f] hover:bg-red-50 hover:!text-[#9d302f] active:!text-[#9d302f]">Remove logo</button></Form> : null}
         </section>
 
         <section className="mt-6 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm" aria-labelledby="upload-logo-heading">
