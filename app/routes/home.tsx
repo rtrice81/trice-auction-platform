@@ -9,6 +9,8 @@ import { clearPendingBookingCookie, createPendingBooking, deletePendingBooking, 
 import { bookingSuccessFlashCookie, createBookingSuccessFlash } from "../services/booking-success-flash.server";
 import { Button, Notice, PageCard, PageIntro, PageShell } from "../components/design-system";
 import { PendingBookingDialog } from "../components/pending-booking-dialog";
+import { PublicFormProtection } from "../components/public-form-protection";
+import { createPublicFormStart, verifyPublicFormSubmission } from "../services/public-form-protection.server";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -21,20 +23,24 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
+  const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string; TURNSTILE_SITE_KEY?: string; TURNSTILE_SECRET_KEY?: string };
   const user = await getCurrentUser(request, env.trice_auction_db, runtime);
   const token = getPendingBookingToken(request);
   const [options, pendingBooking] = await Promise.all([
     getBookingOptions(env.trice_auction_db),
     user ? getPendingBooking(env.trice_auction_db, token) : Promise.resolve(null),
   ]);
-  return {
+  const protection = user ? null : await createPublicFormStart(request, "public-booking", runtime);
+  return data({
     dropoffTypes: options.dropoffTypes.map(({ id, name }) => ({ id, name })),
     itemAreas: options.itemAreas.map(({ id, name }) => ({ id, name })),
     availableDates: options.availableDates,
     pendingBooking,
     resumed: Boolean(user && pendingBooking),
-  };
+    isAuthenticated: Boolean(user),
+    turnstileSiteKey: runtime.TURNSTILE_SITE_KEY ?? "",
+    formStartToken: protection?.token ?? "",
+  }, protection ? { headers: protection.headers } : undefined);
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -42,6 +48,9 @@ export async function action({ request }: Route.ActionArgs) {
   const pendingBooking = pendingBookingFromForm(formData);
   const user = await getCurrentUser(request, env.trice_auction_db, env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string });
   if (!user) {
+    if (!hasBasicPublicBookingFields(pendingBooking)) return data({ ok: false as const, requiresAuthentication: false, errors: ["We couldn’t verify this submission. Please try again."], submitted: pendingBooking }, { status: 400 });
+    const protection = await verifyPublicFormSubmission({ request, formData, form: "public-booking", runtime: env as unknown as { AUTH_SECRET?: string; TURNSTILE_SECRET_KEY?: string }, db: env.trice_auction_db, rateLimit: { maximumAttempts: 12, windowSeconds: 600 } });
+    if (!protection.ok) return data({ ok: false as const, requiresAuthentication: false, errors: [protection.error], submitted: pendingBooking }, { status: 400 });
     const token = await createPendingBooking(env.trice_auction_db, pendingBooking, getPendingBookingToken(request));
     return data({ ok: false as const, requiresAuthentication: true, errors: [] as string[], submitted: pendingBooking }, { headers: { "Set-Cookie": pendingBookingCookie(token, request) } });
   }
@@ -86,6 +95,7 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
         ) : null}
 
         <Form method="post" action="?index" className="space-y-10">
+          {!loaderData.isAuthenticated ? <PublicFormProtection siteKey={loaderData.turnstileSiteKey} formStartToken={loaderData.formStartToken}/> : null}
           <PageCard title="1. Your drop-off">
             <div className="grid gap-5 sm:grid-cols-2">
               <label className="text-sm font-semibold text-stone-800">
@@ -158,4 +168,8 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
       </div>
     </PageShell>
   );
+}
+
+function hasBasicPublicBookingFields(booking: ReturnType<typeof pendingBookingFromForm>) {
+  return Boolean(booking.appointmentDate) && Number.isInteger(booking.dropoffTypeId) && booking.dropoffTypeId > 0 && booking.allocations.length > 0;
 }

@@ -1,3 +1,7 @@
 # Do not commit .dev.vars. Generate a high-entropy value for AUTH_SECRET.
 AUTH_SECRET=replace-with-a-random-secret-at-least-32-characters-long
 BETTER_AUTH_URL=http://127.0.0.1:5173
+# Cloudflare Turnstile's official always-pass local/test keys. Replace these via
+# Worker secrets before deploying to production.
+TURNSTILE_SITE_KEY=1x00000000000000000000AA
+TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
