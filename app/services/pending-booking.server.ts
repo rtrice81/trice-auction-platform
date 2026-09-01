@@ -1,6 +1,5 @@
 export type PendingBooking = {
   appointmentDate: string;
-  appointmentTime: string;
   dropoffTypeId: number;
   description: string;
   allocations: Array<{ itemAreaId: number; percentage: number }>;
@@ -11,7 +10,6 @@ const COOKIE_NAME = "trice_pending_booking";
 export function pendingBookingFromForm(form: FormData): PendingBooking {
   return {
     appointmentDate: String(form.get("appointmentDate") ?? ""),
-    appointmentTime: String(form.get("appointmentTime") ?? ""),
     dropoffTypeId: Number(form.get("dropoffTypeId")),
     description: String(form.get("description") ?? "").trim(),
     allocations: Array.from(form.entries())
@@ -76,7 +74,7 @@ function randomToken() {
 function parsePendingBooking(value: string): PendingBooking | null {
   try {
     const booking = JSON.parse(value) as Partial<PendingBooking>;
-    if (typeof booking.appointmentDate !== "string" || typeof booking.appointmentTime !== "string" || typeof booking.dropoffTypeId !== "number" || typeof booking.description !== "string" || !Array.isArray(booking.allocations)) return null;
+    if (typeof booking.appointmentDate !== "string" || typeof booking.dropoffTypeId !== "number" || typeof booking.description !== "string" || !Array.isArray(booking.allocations)) return null;
     if (!booking.allocations.every((allocation) => allocation && typeof allocation.itemAreaId === "number" && typeof allocation.percentage === "number")) return null;
     return booking as PendingBooking;
   } catch {

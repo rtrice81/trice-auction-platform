@@ -41,12 +41,12 @@ export async function getCustomerPrivateNotes(db: D1Database, customerUserId: nu
 export async function getCustomerAppointmentHistory(db: D1Database, customerUserId: number) {
   const { results } = await db.prepare(
     `SELECT appointment.id, appointment.appointment_date AS appointmentDate,
-            appointment.appointment_time AS appointmentTime, appointment.status, type.name AS loadType
+            appointment.status, type.name AS loadType
      FROM appointments appointment
      JOIN dropoff_types type ON type.id = appointment.dropoff_type_id
      WHERE appointment.user_id = ?
-     ORDER BY appointment.appointment_date DESC, appointment.appointment_time DESC, appointment.id DESC`,
-  ).bind(customerUserId).all<{ id: number; appointmentDate: string; appointmentTime: string | null; status: string; loadType: string }>();
+     ORDER BY appointment.appointment_date DESC, appointment.id DESC`,
+  ).bind(customerUserId).all<{ id: number; appointmentDate: string; status: string; loadType: string }>();
   return results;
 }
 

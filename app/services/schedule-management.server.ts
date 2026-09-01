@@ -29,7 +29,6 @@ export type EventArea = EventAreaInput & {
 
 export type ScheduledAppointment = {
   id: number;
-  time: string | null;
   customer: string;
   loadType: string;
   capacityPoints: number;
@@ -300,8 +299,7 @@ async function validateEventInput(db: D1Database, input: DropoffEventInput, isNe
 
 async function getAppointmentsForDate(db: D1Database, date: string): Promise<ScheduledAppointment[]> {
   const { results } = await db.prepare(
-    `SELECT appointment.id, appointment.appointment_time AS time,
-            COALESCE(NULLIF(TRIM(user.first_name || ' ' || user.last_name), ''), user.email) AS customer,
+    `SELECT appointment.id, COALESCE(NULLIF(TRIM(user.first_name || ' ' || user.last_name), ''), user.email) AS customer,
             type.name AS loadType, type.capacity_points AS capacityPoints, appointment.status,
             COALESCE(GROUP_CONCAT(area.name || ': ' || allocation.allocation_percent || '%', ' · '), '') AS allocationSummary
      FROM appointments appointment
@@ -311,7 +309,7 @@ async function getAppointmentsForDate(db: D1Database, date: string): Promise<Sch
      LEFT JOIN item_areas area ON area.id = allocation.item_area_id
      WHERE appointment.appointment_date = ?
      GROUP BY appointment.id
-     ORDER BY appointment.appointment_time, appointment.id`,
+     ORDER BY appointment.created_at, appointment.id`,
   ).bind(date).all<ScheduledAppointment>();
   return results;
 }

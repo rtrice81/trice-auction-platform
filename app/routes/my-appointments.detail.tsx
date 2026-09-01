@@ -13,7 +13,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const appointment = await env.trice_auction_db
     .prepare(
       `SELECT a.id AS id, a.user_id AS userId, a.appointment_date AS appointmentDate,
-              a.appointment_time AS appointmentTime, a.dropoff_type_id AS dropoffTypeId,
+              a.dropoff_type_id AS dropoffTypeId,
               a.description AS description, a.status AS status, day.event_name AS eventName, day.visibility AS visibility
        FROM appointments AS a
        LEFT JOIN dropoff_days AS day ON day.dropoff_date = a.appointment_date
@@ -74,7 +74,6 @@ export async function action({ request, params }: Route.ActionArgs) {
       appointmentId: Number(params.id),
       userId: user.id,
       appointmentDate: String(form.get("appointmentDate")),
-      appointmentTime: String(form.get("appointmentTime") || ""),
       dropoffTypeId: Number(form.get("dropoffTypeId")),
       description: String(form.get("description") || ""),
       allocations,
@@ -87,12 +86,11 @@ export default function Detail({ loaderData, actionData }: Route.ComponentProps)
   return (
     <PageShell><div className="max-w-3xl"><Link to="/my-appointments" className="text-sm font-bold text-[#9d302f]">← My Appointments</Link><PageIntro eyebrow="Customer portal" title="Edit appointment">Update your scheduled drop-off details. Availability is confirmed when you save.</PageIntro>
       {actionData && "error" in actionData ? <Notice variant="error">{actionData.error}</Notice> : null}{actionData && "errors" in actionData ? <Notice variant="error">{actionData.errors.join(" ")}</Notice> : null}{actionData && "message" in actionData ? <Notice variant="success">{actionData.message}</Notice> : null}
-      <PageCard title={appointment.visibility === "private" ? (appointment.eventName || "Private appointment") : "Appointment details"}>{appointment.visibility === "private" ? <div className="grid gap-2 text-sm text-[#555960]"><p>{appointment.appointmentDate} · {appointment.appointmentTime || "Time TBD"} · {appointment.status}</p><p>{options.dropoffTypes.find((type) => type.id === appointment.dropoffTypeId)?.name}</p><p className="whitespace-pre-wrap">{appointment.description || ""}</p></div> : <Form method="post" className="grid gap-5 sm:grid-cols-2">
+      <PageCard title={appointment.visibility === "private" ? (appointment.eventName || "Private appointment") : "Appointment details"}>{appointment.visibility === "private" ? <div className="grid gap-2 text-sm text-[#555960]"><p>{appointment.appointmentDate} · {appointment.status}</p><p>{options.dropoffTypes.find((type) => type.id === appointment.dropoffTypeId)?.name}</p><p className="whitespace-pre-wrap">{appointment.description || ""}</p></div> : <Form method="post" className="grid gap-5 sm:grid-cols-2">
         <FormField label="Drop-off date"><select name="appointmentDate" defaultValue={appointment.appointmentDate}>
             {options.availableDates.map((date) => <option key={date.date} value={date.date}>{date.date}</option>)}
           </select></FormField>
         {!options.availableDates.some((date) => date.date === appointment.appointmentDate) ? <div className="sm:col-span-2"><Notice variant="warning">This appointment’s current date is no longer bookable. Choose an open configured date to save changes.</Notice></div> : null}
-        <FormField label="Drop-off time"><input type="time" name="appointmentTime" defaultValue={appointment.appointmentTime ?? ""} /></FormField>
         <FormField label="Load type"><select name="dropoffTypeId" defaultValue={appointment.dropoffTypeId}>
           {options.dropoffTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
         </select></FormField>

@@ -9,3 +9,7 @@ test("notification templates render only whitelisted appointment values", () => 
 test("unknown notification template placeholders are detected", () => {
   assert.deepEqual(unknownTemplatePlaceholders("Hi {{first_name}} {{unsafe_code}}"), ["unsafe_code"]);
 });
+
+test("appointment time is no longer a supported notification placeholder", () => {
+  assert.deepEqual(unknownTemplatePlaceholders("Scheduled {{appointment_date}} at {{appointment_time}}"), ["appointment_time"]);
+});

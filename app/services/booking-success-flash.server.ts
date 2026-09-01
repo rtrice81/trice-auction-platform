@@ -1,6 +1,5 @@
 export type BookingSuccessFlash = {
   appointmentDate: string;
-  appointmentTime: string | null;
   loadType: string;
 };
 
@@ -21,8 +20,7 @@ export async function createBookingSuccessFlash(db: D1Database, userId: number, 
 export async function consumeBookingSuccessFlash(db: D1Database, userId: number, token: string | null): Promise<BookingSuccessFlash | null> {
   if (!token) return null;
   const flash = await db.prepare(
-    `SELECT appointment.appointment_date AS appointmentDate, appointment.appointment_time AS appointmentTime,
-      type.name AS loadType
+    `SELECT appointment.appointment_date AS appointmentDate, type.name AS loadType
      FROM booking_success_flashes flash
      JOIN appointments appointment ON appointment.id = flash.appointment_id
      JOIN dropoff_types type ON type.id = appointment.dropoff_type_id

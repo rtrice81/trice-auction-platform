@@ -25,7 +25,6 @@ type AppointmentForAction = {
   id: number;
   userId: number;
   date: string;
-  time: string | null;
   typeId: number;
   description: string | null;
   status: string;
@@ -74,7 +73,7 @@ export async function action({ request, params }: AppointmentDetailRequestArgs) 
   }
 
   const input = bookingInputFromForm(form, appointment);
-  const changed = input.appointmentDate !== appointment.date || (input.appointmentTime || null) !== appointment.time || input.dropoffTypeId !== appointment.typeId;
+  const changed = input.appointmentDate !== appointment.date || input.dropoffTypeId !== appointment.typeId;
   if (form.get("intent") !== "override") {
     const result = await createBooking(env.trice_auction_db, input);
     if (result.ok && changed) await queueAppointmentRescheduled(env.trice_auction_db, appointmentId);
@@ -118,7 +117,6 @@ export async function action({ request, params }: AppointmentDetailRequestArgs) 
     },
     requestedValues: {
       appointmentDate: input.appointmentDate,
-      appointmentTime: input.appointmentTime || null,
       dropoffTypeId: input.dropoffTypeId,
       description: input.description || null,
       allocations: input.allocations,
@@ -189,7 +187,6 @@ export function AppointmentManagementDetail({
         <input type="hidden" name="intent" value="save" />
         {returnTo ? <input type="hidden" name="returnTo" value={returnTo} /> : null}
         <label className="ta-field">Date<input name="date" type="date" defaultValue={appointment.date} /></label>
-        <label className="ta-field">Time<input name="time" type="time" defaultValue={appointment.time || ""} /></label>
         <label className="ta-field">Load type<select name="typeId" defaultValue={appointment.typeId}>
           {options.dropoffTypes.map((type) => (
             <option key={type.id} value={type.id}>
@@ -226,7 +223,6 @@ export function AppointmentManagementDetail({
             <input type="hidden" name="intent" value="override" />
             {returnTo ? <input type="hidden" name="returnTo" value={returnTo} /> : null}
             <input type="hidden" name="date" value={validationFailure.submitted.appointmentDate} />
-            <input type="hidden" name="time" value={validationFailure.submitted.appointmentTime || ""} />
             <input type="hidden" name="typeId" value={validationFailure.submitted.dropoffTypeId} />
             <input type="hidden" name="description" value={validationFailure.submitted.description} />
             {validationFailure.submitted.allocations.map((allocation) => (
@@ -246,7 +242,7 @@ export function AppointmentManagementDetail({
         </section>
       ) : null}
 
-      <ConfirmationForm method="post" className="mt-4" confirmation={{ title: "Cancel drop-off appointment?", description: <><p>Are you sure you want to cancel this drop-off appointment?</p><p className="mt-2 text-sm">{appointment.customer} · {appointment.date} · {appointment.time || "Time TBD"}</p></>, confirmLabel: "Cancel appointment", destructive: true }}>
+      <ConfirmationForm method="post" className="mt-4" confirmation={{ title: "Cancel drop-off appointment?", description: <><p>Are you sure you want to cancel this drop-off appointment?</p><p className="mt-2 text-sm">{appointment.customer} · {appointment.date}</p></>, confirmLabel: "Cancel appointment", destructive: true }}>
         <input type="hidden" name="cancel" value="1" />
         <button className="ta-button ta-button-destructive">Cancel appointment</button>
       </ConfirmationForm>
@@ -306,7 +302,6 @@ function bookingInputFromForm(form: FormData, appointment: AppointmentForAction)
     appointmentId: appointment.id,
     userId: appointment.userId,
     appointmentDate: String(form.get("date")),
-    appointmentTime: String(form.get("time") || ""),
     dropoffTypeId: Number(form.get("typeId")),
     description: String(form.get("description") || ""),
     allocations: Array.from(form.entries())
@@ -343,7 +338,6 @@ async function getAppointment(db: D1Database, appointmentId: number) {
         appointments.id AS id,
         user_id AS userId,
         appointment_date AS date,
-        appointment_time AS time,
         dropoff_type_id AS typeId,
         description,
         status,

@@ -28,7 +28,6 @@ export type AvailableDropoffDate = {
 export type BookingInput = {
   userId: number;
   appointmentId?: number;
-  appointmentTime?: string;
   appointmentDate: string;
   dropoffTypeId: number;
   description: string;
@@ -152,14 +151,13 @@ export async function createBooking(db: D1Database, input: BookingInput, options
   const appointment = await db
     .prepare(
       `INSERT INTO appointments (
-        user_id, appointment_date, appointment_time, dropoff_type_id, description, status
-      ) VALUES (?, ?, ?, ?, ?, ?)
+        user_id, appointment_date, dropoff_type_id, description, status
+      ) VALUES (?, ?, ?, ?, ?)
       RETURNING id`,
     )
     .bind(
       input.userId,
       input.appointmentDate,
-      input.appointmentTime || null,
       validation.dropoffType.id,
       input.description || null,
       ACTIVE_APPOINTMENT_STATUS,
@@ -208,9 +206,9 @@ export async function createBookingWithOverride(
   dropoffType: DropoffType,
 ) {
   const appointment = await db.prepare(
-    `INSERT INTO appointments (user_id, appointment_date, appointment_time, dropoff_type_id, description, status)
-     VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
-  ).bind(input.userId, input.appointmentDate, input.appointmentTime || null, dropoffType.id, input.description || null, ACTIVE_APPOINTMENT_STATUS).first<{ id: number }>();
+    `INSERT INTO appointments (user_id, appointment_date, dropoff_type_id, description, status)
+     VALUES (?, ?, ?, ?, ?) RETURNING id`,
+  ).bind(input.userId, input.appointmentDate, dropoffType.id, input.description || null, ACTIVE_APPOINTMENT_STATUS).first<{ id: number }>();
   if (!appointment) throw new Error("The overridden booking could not be created.");
   await db.batch(input.allocations.map((allocation) => db.prepare(
     `INSERT INTO appointment_area_allocations (appointment_id, item_area_id, allocation_percent, capacity_points)
@@ -340,7 +338,6 @@ export function getBookingUpdateStatements(
       .prepare(
         `UPDATE appointments
          SET appointment_date = ?,
-             appointment_time = ?,
              dropoff_type_id = ?,
              description = ?,
              updated_at = CURRENT_TIMESTAMP
@@ -348,7 +345,6 @@ export function getBookingUpdateStatements(
       )
       .bind(
         input.appointmentDate,
-        input.appointmentTime || null,
         dropoffType.id,
         input.description || null,
         input.appointmentId,
