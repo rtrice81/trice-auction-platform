@@ -13,6 +13,7 @@ export type EventAreaInput = {
 export type DropoffEventInput = {
   date: string;
   eventName: string;
+  description: string;
   visibility: "public" | "private";
   isOpen: boolean;
   dailyCapacityPoints: number;
@@ -40,6 +41,7 @@ export type DropoffEvent = {
   id: number;
   date: string;
   eventName: string | null;
+  description: string | null;
   visibility: "public" | "private";
   isOpen: boolean;
   note: string | null;
@@ -59,6 +61,7 @@ export function dropoffEventInputFromForm(form: FormData): DropoffEventInput {
   return {
     date: String(form.get("date") ?? ""),
     eventName: String(form.get("eventName") ?? ""),
+    description: String(form.get("description") ?? ""),
     visibility: form.get("visibility") === "public" ? "public" : "private",
     isOpen: form.get("isOpen") === "true",
     dailyCapacityPoints: Number(form.get("dailyCapacityPoints")),
@@ -116,13 +119,14 @@ export async function createDropoffEvent(db: D1Database, input: DropoffEventInpu
   const event = await db
     .prepare(
       `INSERT INTO dropoff_days (
-        dropoff_date, event_name, visibility, capacity_points, daily_capacity_override, is_open, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        dropoff_date, event_name, description, visibility, capacity_points, daily_capacity_override, is_open, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       RETURNING id`,
     )
     .bind(
       input.date,
       input.eventName.trim() || null,
+      input.description.trim() || null,
       input.visibility,
       input.dailyCapacityPoints,
       input.dailyCapacityPoints,
@@ -165,11 +169,12 @@ export async function updateDropoffEvent(
     db
       .prepare(
         `UPDATE dropoff_days
-         SET event_name = ?, visibility = ?, capacity_points = ?, daily_capacity_override = ?, is_open = ?, notes = ?
+         SET event_name = ?, description = ?, visibility = ?, capacity_points = ?, daily_capacity_override = ?, is_open = ?, notes = ?
          WHERE id = ?`,
       )
       .bind(
         input.eventName.trim() || null,
+        input.description.trim() || null,
         input.visibility,
         input.dailyCapacityPoints,
         input.dailyCapacityPoints,
@@ -226,11 +231,11 @@ async function getDropoffEvent(
 ): Promise<DropoffEvent> {
   const event = await db
     .prepare(
-      `SELECT id, dropoff_date AS date, event_name AS eventName, visibility, is_open AS isOpen, notes
+      `SELECT id, dropoff_date AS date, event_name AS eventName, description, visibility, is_open AS isOpen, notes
        FROM dropoff_days WHERE id = ?`,
     )
     .bind(eventId)
-    .first<{ id: number; date: string; eventName: string | null; visibility: "public" | "private"; isOpen: number; notes: string | null }>();
+    .first<{ id: number; date: string; eventName: string | null; description: string | null; visibility: "public" | "private"; isOpen: number; notes: string | null }>();
   if (!event) throw new Response("Not Found", { status: 404 });
 
   const [effective, summary, usage, waitlistUsage, appointments] = await Promise.all([
@@ -268,6 +273,7 @@ async function getDropoffEvent(
     id: event.id,
     date: event.date,
     eventName: event.eventName,
+    description: event.description,
     visibility: event.visibility,
     isOpen: event.isOpen === 1,
     note: event.notes,

@@ -1,11 +1,11 @@
 export type BookingEventStatus = "upcoming" | "open" | "closed" | "full" | "inactive";
 export type CustomerAvailability = "Available" | "Limited Availability" | "Nearly Full" | "Waitlist" | "Full" | "Signup Not Open Yet" | "Closed";
 
-export type CustomerDropoffDate = { eventId: number; eventDate: string; eventName: string | null; isOpen: boolean; bookable: boolean; availability: CustomerAvailability };
+export type CustomerDropoffDate = { eventId: number; eventDate: string; eventName: string | null; description: string | null; isOpen: boolean; bookable: boolean; availability: CustomerAvailability };
 import { bookingEventInstant } from "../lib/booking-event-time";
 import { calendarDateInTimezone, customerBookingEventSignupStatus, getEffectivePublicDropoffDateAvailability, isCustomerBookingEventVisible } from "../lib/booking-event-visibility";
 export type CustomerBookingEvent = { id: number; name: string; description: string | null; opensAt: string; closesAt: string | null; timezone: string; timeStorageVersion: number; active: boolean; status: BookingEventStatus; dates: CustomerDropoffDate[] };
-type BookingEventRow = { bookingEventId: number; name: string; description: string | null; opensAt: string; closesAt: string | null; timezone: string; timeStorageVersion: number; active: number; eventId: number; eventDate: string; eventName: string | null; eventOpen: number };
+type BookingEventRow = { bookingEventId: number; name: string; description: string | null; opensAt: string; closesAt: string | null; timezone: string; timeStorageVersion: number; active: number; eventId: number; eventDate: string; eventName: string | null; eventDescription: string | null; eventOpen: number };
 
 export async function getBookableBookingEventForDate(db: D1Database, date: string, now = new Date()) {
   const row = await db.prepare(`SELECT event.id, event.name, event.opens_at AS opensAt, event.closes_at AS closesAt, event.timezone, event.timestamp_storage_version AS timeStorageVersion, event.active, day.is_open AS eventOpen FROM dropoff_days day LEFT JOIN booking_event_dropoff_dates link ON link.dropoff_day_id = day.id LEFT JOIN booking_events event ON event.id = link.booking_event_id WHERE day.dropoff_date = ? AND day.visibility = 'public'`).bind(date).first<{ id: number | null; name: string | null; opensAt: string | null; closesAt: string | null; timezone: string | null; timeStorageVersion: number | null; active: number | null; eventOpen: number | null }>();
@@ -15,7 +15,7 @@ export async function getBookableBookingEventForDate(db: D1Database, date: strin
 }
 
 export async function getCustomerBookingEvents(db: D1Database, now = new Date()): Promise<CustomerBookingEvent[]> {
-  const { results } = await db.prepare(`SELECT event.id AS bookingEventId, event.name, event.description, event.opens_at AS opensAt, event.closes_at AS closesAt, event.timezone, event.timestamp_storage_version AS timeStorageVersion, event.active, day.id AS eventId, day.dropoff_date AS eventDate, day.event_name AS eventName, day.is_open AS eventOpen FROM booking_events event JOIN booking_event_dropoff_dates link ON link.booking_event_id = event.id JOIN dropoff_days day ON day.id = link.dropoff_day_id WHERE event.active = 1 AND day.visibility = 'public' ORDER BY event.opens_at ASC, day.dropoff_date ASC`).all<BookingEventRow>();
+  const { results } = await db.prepare(`SELECT event.id AS bookingEventId, event.name, event.description, event.opens_at AS opensAt, event.closes_at AS closesAt, event.timezone, event.timestamp_storage_version AS timeStorageVersion, event.active, day.id AS eventId, day.dropoff_date AS eventDate, day.event_name AS eventName, day.description AS eventDescription, day.is_open AS eventOpen FROM booking_events event JOIN booking_event_dropoff_dates link ON link.booking_event_id = event.id JOIN dropoff_days day ON day.id = link.dropoff_day_id WHERE event.active = 1 AND day.visibility = 'public' ORDER BY event.opens_at ASC, day.dropoff_date ASC`).all<BookingEventRow>();
   const visibleRows = results.filter((row) => {
     const opensAt = bookingEventInstant(row.opensAt, row.timezone, row.timeStorageVersion);
     const closesAt = row.closesAt ? bookingEventInstant(row.closesAt, row.timezone, row.timeStorageVersion) : null;
@@ -25,7 +25,7 @@ export async function getCustomerBookingEvents(db: D1Database, now = new Date())
 }
 
 export async function getCustomerDropoffDateById(db: D1Database, eventId: number, now = new Date()) {
-  const row = await db.prepare(`SELECT event.id AS bookingEventId, event.name, event.description, event.opens_at AS opensAt, event.closes_at AS closesAt, event.timezone, event.timestamp_storage_version AS timeStorageVersion, event.active, day.id AS eventId, day.dropoff_date AS eventDate, day.event_name AS eventName, day.is_open AS eventOpen FROM booking_events event JOIN booking_event_dropoff_dates link ON link.booking_event_id = event.id JOIN dropoff_days day ON day.id = link.dropoff_day_id WHERE event.active = 1 AND day.visibility = 'public' AND day.id = ? AND day.dropoff_date >= ?`).bind(eventId, today(now)).first<BookingEventRow>();
+  const row = await db.prepare(`SELECT event.id AS bookingEventId, event.name, event.description, event.opens_at AS opensAt, event.closes_at AS closesAt, event.timezone, event.timestamp_storage_version AS timeStorageVersion, event.active, day.id AS eventId, day.dropoff_date AS eventDate, day.event_name AS eventName, day.description AS eventDescription, day.is_open AS eventOpen FROM booking_events event JOIN booking_event_dropoff_dates link ON link.booking_event_id = event.id JOIN dropoff_days day ON day.id = link.dropoff_day_id WHERE event.active = 1 AND day.visibility = 'public' AND day.id = ? AND day.dropoff_date >= ?`).bind(eventId, today(now)).first<BookingEventRow>();
   if (!row) return null;
   const [bookingEvent] = await groupCustomerBookingEventRows(db, [row], now);
   return bookingEvent ? { bookingEvent, date: bookingEvent.dates[0] } : null;
@@ -43,7 +43,7 @@ async function groupCustomerBookingEventRows(db: D1Database, rows: BookingEventR
   for (const { row, availability } of details) {
     let bookingEvent = grouped.get(row.bookingEventId);
     if (!bookingEvent) { bookingEvent = { id: row.bookingEventId, name: row.name, description: row.description, opensAt: row.opensAt, closesAt: row.closesAt, timezone: row.timezone, timeStorageVersion: row.timeStorageVersion, active: row.active === 1, status: getBookingEventStatus(row, now), dates: [] }; grouped.set(row.bookingEventId, bookingEvent); }
-    bookingEvent.dates.push({ eventId: row.eventId, eventDate: row.eventDate, eventName: row.eventName, isOpen: row.eventOpen === 1, ...availability });
+    bookingEvent.dates.push({ eventId: row.eventId, eventDate: row.eventDate, eventName: row.eventName, description: row.eventDescription, isOpen: row.eventOpen === 1, ...availability });
   }
   return [...grouped.values()].map((bookingEvent) => bookingEvent.status === "open" && bookingEvent.dates.length > 0 && bookingEvent.dates.every((date) => date.availability === "Full") ? { ...bookingEvent, status: "full" } : bookingEvent);
 }

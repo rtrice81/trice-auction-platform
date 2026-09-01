@@ -22,7 +22,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const [bookingEvent, bookingEvents] = await Promise.all([Number.isInteger(bookingEventId) && bookingEventId > 0 ? env.trice_auction_db.prepare("SELECT id, name FROM booking_events WHERE id = ?").bind(bookingEventId).first<{id:number;name:string}>() : null, env.trice_auction_db.prepare("SELECT id, name FROM booking_events ORDER BY opens_at DESC").all<{id:number;name:string}>()]);
   // A public child date is operationally enabled by default. Its parent Booking
   // Event still controls when customers can begin signing up.
-  return { event: { date: today(), eventName: null, visibility: bookingEvent ? "public" as const : "private" as const, isOpen: true, note: null, ...defaults }, bookingEvent, bookingEvents: bookingEvents.results };
+  return { event: { date: today(), eventName: null, description: null, visibility: bookingEvent ? "public" as const : "private" as const, isOpen: true, note: null, ...defaults }, bookingEvent, bookingEvents: bookingEvents.results };
 }
 
 export async function action({ request }: Route.ActionArgs) {
