@@ -40,6 +40,24 @@ npm run admin:promote-local -- person@example.com
 
 The command always targets local D1, never the production database, and exits without changing anything when the email is absent.
 
+### Reset an existing admin password
+
+Use this only for an existing, active application user whose role is already `admin`. The command verifies the linked Better Auth identity and existing password credential before it prompts twice for a new password. It does not create users, alter roles, or revoke sessions. Password input is not printed or logged.
+
+Local D1 is the default:
+
+```bash
+npm run admin:reset-password -- admin@example.com
+```
+
+Production D1 requires the explicit `--remote` flag:
+
+```bash
+npm run admin:reset-password -- admin@example.com --remote
+```
+
+The command uses Better Auth's password hashing implementation before updating the existing credential record; it never stores plaintext passwords.
+
 For the first production admin, use an authenticated Cloudflare operator session after the user has registered normally. Verify the email carefully, run a one-off remote D1 update, then confirm the result:
 
 ```sh
