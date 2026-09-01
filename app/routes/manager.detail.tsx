@@ -14,7 +14,7 @@ import {
   type BookingInput,
   validateBooking,
 } from "../services/booking.server";
-import { queueAppointmentCancelled, queueAppointmentRescheduled } from "../services/notification.server";
+import { cancelScheduledAppointment, queueAppointmentRescheduled } from "../services/notification.server";
 
 const runtime = env as unknown as {
   AUTH_SECRET?: string;
@@ -68,11 +68,8 @@ export async function action({ request, params }: AppointmentDetailRequestArgs) 
     ? `/admin/appointments/${appointmentId}`
     : null;
   if (form.get("cancel") === "1") {
-    await env.trice_auction_db
-      .prepare("UPDATE appointments SET status = 'cancelled' WHERE id = ?")
-      .bind(appointmentId)
-      .run();
-    await queueAppointmentCancelled(env.trice_auction_db, appointmentId);
+    const result = await cancelScheduledAppointment(env.trice_auction_db, appointmentId, env as never);
+    if (!result.cancelled) return data({ ok: false, message: "This appointment is already cancelled or no longer scheduled." }, { status: 400 });
     return data({ ok: true, message: "Cancelled" });
   }
 
