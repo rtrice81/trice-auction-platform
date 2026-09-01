@@ -19,7 +19,7 @@ const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: stri
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   await requireRole(request, env.trice_auction_db, runtime, "admin");
-  return { event: await getDropoffEventById(env.trice_auction_db, Number(params.id)) };
+  return { event: await getDropoffEventById(env.trice_auction_db, Number(params.id)), created: new URL(request.url).searchParams.has("created") };
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -43,11 +43,12 @@ export default function DropoffEventDetail({ loaderData, actionData }: Route.Com
   return (
     <main className="mx-auto max-w-5xl p-8">
       <Link to="/admin/schedule">← Drop-Off Events</Link>
-      <header className="mt-4 flex flex-wrap items-start justify-between gap-4"><div><h1 className="text-3xl font-bold">{event.eventName || "Drop-Off Event"}</h1><p className="mt-1 text-stone-600">{event.date} · {event.visibility === "private" ? "Private / Internal" : "Public"} · {event.isOpen ? "Open for bookings" : "Closed for bookings"}</p></div><Form method="post"><input type="hidden" name="intent" value={event.isOpen ? "close" : "open"} /><button className="rounded border px-3 py-2">{event.isOpen ? "Close event" : "Open event"}</button></Form></header>
+      <header className="mt-4 flex flex-wrap items-start justify-between gap-4"><div><h1 className="text-3xl font-bold">{event.eventName || "Drop-Off Event"}</h1><p className="mt-1 text-stone-600">{event.date} · {event.visibility === "private" ? "Private / Internal" : "Public"} · {event.isOpen ? "Open for bookings" : "Closed for bookings"}</p></div><div className="flex flex-wrap gap-3"><Link className="rounded bg-stone-900 px-4 py-2 font-semibold text-white" to={`/admin/appointments/new?scheduleId=${event.id}&appointmentDate=${event.date}`}>Add Appointment</Link><Form method="post"><input type="hidden" name="intent" value={event.isOpen ? "close" : "open"} /><button className="rounded border px-3 py-2">{event.isOpen ? "Close event" : "Open event"}</button></Form></div></header>
+      {loaderData.created ? <p className="mt-4 rounded border border-emerald-200 bg-emerald-50 p-3" role="status">Appointment created and added to this Drop-Off Date.</p> : null}
       {actionData?.ok ? <p className="mt-4 rounded border border-emerald-200 bg-emerald-50 p-3" role="status">{actionData.message}</p> : null}
       {actionData && !actionData.ok ? <p className="mt-4 rounded border border-red-200 bg-red-50 p-3" role="alert">{actionData.errors.join(" ")}</p> : null}
       <Form method="post" className="mt-6 rounded border bg-white p-6"><input type="hidden" name="intent" value="save" /><DropoffEventForm event={event} submitLabel="Save event changes" includeDate={false} /></Form>
-      <section className="mt-8"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-2xl font-bold">Appointments</h2>{event.visibility === "private" ? <Link className="rounded bg-stone-900 px-4 py-2 font-semibold text-white" to={`/admin/appointments/new?appointmentDate=${event.date}`}>Assign customer</Link> : null}</div>{event.visibility === "private" ? <p className="mt-2 text-sm text-stone-600">Create one appointment per assigned customer. Private dates are never available for customer self-booking.</p> : null}<div className="mt-3"><AppointmentSummaryList appointments={event.appointments}/></div></section>
+      <section className="mt-8"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-2xl font-bold">Appointments</h2></div>{event.visibility === "private" ? <p className="mt-2 text-sm text-stone-600">Create one appointment per assigned customer. Private dates are never available for customer self-booking.</p> : null}<div className="mt-3"><AppointmentSummaryList appointments={event.appointments}/></div></section>
       <section className="mt-8 rounded border border-red-200 bg-red-50 p-5"><h2 className="font-bold">Delete event</h2><p className="mt-1 text-sm">Deletion is available only when this event has no appointments. Otherwise close it to preserve operational history.</p><ConfirmationForm method="post" className="mt-3" confirmation={{ title: "Permanently delete Drop-Off Event?", description: <>Are you sure you want to permanently delete this item? This action cannot be undone.<p className="mt-2 text-sm">{event.eventName || "Drop-Off Event"} · {event.date}</p></>, confirmLabel: "Permanently delete", destructive: true }}><input type="hidden" name="intent" value="delete" /><button className="text-sm font-semibold text-red-800 underline">Delete Drop-Off Event</button></ConfirmationForm></section>
     </main>
   );
