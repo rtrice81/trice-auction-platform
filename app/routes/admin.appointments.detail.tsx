@@ -40,7 +40,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
-  await requireRole(request, env.trice_auction_db, runtime, "admin");
+  const actor = await requireRole(request, env.trice_auction_db, runtime, "admin");
   const appointmentId = Number(params.id);
   const appointment = await env.trice_auction_db.prepare(
     "SELECT appointment_date AS appointmentDate, status FROM appointments WHERE id = ?",
@@ -49,7 +49,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   const form = await request.formData();
   if (form.get("intent") !== "cancel") return data({ error: "Invalid action." }, { status: 400 });
   if (appointment.status !== "scheduled") return data({ error: "Only scheduled appointments can be cancelled." }, { status: 400 });
-  const result = await cancelScheduledAppointment(env.trice_auction_db, appointmentId, env as never);
+  const result = await cancelScheduledAppointment(env.trice_auction_db, appointmentId, env as never, actor.email);
   if (!result.cancelled) return data({ error: "Only scheduled appointments can be cancelled." }, { status: 400 });
   return redirect(`/admin/appointments/${appointmentId}?cancelled=1`);
 }

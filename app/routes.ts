@@ -16,6 +16,7 @@ export default [
   layout("routes/admin.layout.tsx", [
     route("admin/branding", "routes/admin.branding.tsx"),
     route("admin/notifications", "routes/admin.notifications.tsx"),
+    route("admin/notification-recipients", "routes/admin.notification-recipients.tsx"),
     route("admin/capacity", "routes/admin.capacity.tsx"),
     route("admin/users", "routes/admin.users.tsx"),
     route("admin/users/:id/edit", "routes/admin.users.edit.tsx"),

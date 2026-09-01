@@ -50,6 +50,7 @@ export const ADMIN_NAVIGATION: readonly AdminNavigationModule[] = [
     items: [
       { label: "Branding", path: "/admin/branding", module: "System", group: "System", allowedRoles: ["admin"], requiredPermission: "admin:access", displayOrder: 10 },
       { label: "Notifications", path: "/admin/notifications", module: "System", group: "System", allowedRoles: ["admin"], requiredPermission: "admin:access", displayOrder: 20 },
+      { label: "Internal Recipients", path: "/admin/notification-recipients", module: "System", group: "System", allowedRoles: ["admin"], requiredPermission: "admin:access", displayOrder: 30 },
     ],
   },
 ];

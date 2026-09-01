@@ -7,6 +7,7 @@ import { requireRole } from "../services/auth.server";
 import { getCustomerById, searchCustomers } from "../services/customer-management.server";
 import { getDropoffEventById } from "../services/schedule-management.server";
 import { AreaAllocationFields } from "../components/area-allocation-fields";
+import { queueAppointmentCreated } from "../services/notification.server";
 
 const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
 
@@ -25,12 +26,13 @@ export async function action({ request }: Route.ActionArgs) {
   if (schedule) input.appointmentDate = schedule.date;
   const customer = await getCustomerById(env.trice_auction_db, input.userId);
   if (!customer) return data({ ok: false as const, errors: ["Choose an existing customer."], submitted: input }, { status: 400 });
-  if (form.get("intent") !== "override") { const result = await createBooking(env.trice_auction_db, input, { allowAdminScheduling: true }); if (result.ok) return redirect(schedule ? `/admin/schedule/${schedule.id}?created=${result.appointmentId}` : `/admin/appointments?created=${result.appointmentId}`); return data({ ...result, submitted: input }, { status: 400 }); }
+  if (form.get("intent") !== "override") { const result = await createBooking(env.trice_auction_db, input, { allowAdminScheduling: true }); if (result.ok) { await queueAppointmentCreated(env.trice_auction_db, result.appointmentId, env as never, actor.email); return redirect(schedule ? `/admin/schedule/${schedule.id}?created=${result.appointmentId}` : `/admin/appointments?created=${result.appointmentId}`); } return data({ ...result, submitted: input }, { status: 400 }); }
   const reason = String(form.get("overrideReason") || "").trim(); if (!reason) return data({ ok: false as const, errors: ["An override reason is required."], overridableViolations: [], submitted: input }, { status: 400 });
   const validation = await validateBooking(env.trice_auction_db, input, { allowAdminScheduling: true });
   if (validation.ok || !validation.dropoffType || !onlyOverridable(validation.errors, validation.overridableViolations)) return data({ ...(validation.ok ? { ok: false, errors: ["This appointment no longer requires an override."], overridableViolations: [] } : validation), submitted: input }, { status: 400 });
   const appointmentId = await createBookingWithOverride(env.trice_auction_db, { ...input, allocations: validation.allocations }, validation.dropoffType);
   await createAppointmentOverrideAuditStatement(env.trice_auction_db, { appointmentId, actorUserId: actor.id, actorRole: "admin", reason, violatedRules: validation.overridableViolations, previousValues: null, requestedValues: input, capacityContext: validation.capacityContext }).run();
+  await queueAppointmentCreated(env.trice_auction_db, appointmentId, env as never, actor.email);
   return redirect(schedule ? `/admin/schedule/${schedule.id}?created=${appointmentId}` : `/admin/appointments/${appointmentId}`);
 }
 

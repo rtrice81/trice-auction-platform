@@ -3,7 +3,8 @@ import { data, Form, Link } from "react-router";
 import type { Route } from "./+types/my-appointments.detail";
 import { requireOwnership, requireUser } from "../services/auth.server";
 import { createBooking, getBookingOptions } from "../services/booking.server";
-import { cancelScheduledAppointment } from "../services/notification.server";
+import { cancelScheduledAppointment, queueAppointmentRescheduled } from "../services/notification.server";
+import { getInternalAppointmentSnapshot, internalAppointmentDetailsChanged } from "../services/internal-appointment-notifications.server";
 import { Button, FormField, Notice, PageCard, PageIntro, PageShell } from "../components/design-system";
 import { AreaAllocationFields } from "../components/area-allocation-fields";
 
@@ -64,22 +65,26 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   const form = await request.formData();
   if (form.get("intent") === "cancel") {
-    const result = await cancelScheduledAppointment(env.trice_auction_db, Number(params.id), env as never);
+    const result = await cancelScheduledAppointment(env.trice_auction_db, Number(params.id), env as never, user.email);
     return data(result.cancelled ? { ok: true as const, message: "Your appointment has been cancelled." } : { error: "This appointment is already cancelled or no longer scheduled." }, { status: result.cancelled ? 200 : 400 });
   }
   const allocations = Array.from(form.entries())
     .filter(([key]) => key.startsWith("allocation-"))
     .map(([key, value]) => ({ itemAreaId: Number(key.slice(11)), percentage: Number(value) }));
-  return data(
-    await createBooking(env.trice_auction_db, {
+  const appointmentId = Number(params.id);
+  const previous = await getInternalAppointmentSnapshot(env.trice_auction_db, appointmentId);
+  const result = await createBooking(env.trice_auction_db, {
       appointmentId: Number(params.id),
       userId: user.id,
       appointmentDate: String(form.get("appointmentDate")),
       dropoffTypeId: Number(form.get("dropoffTypeId")),
       description: String(form.get("description") || ""),
       allocations,
-    }),
-  );
+    });
+  const current = result.ok ? await getInternalAppointmentSnapshot(env.trice_auction_db, appointmentId) : null;
+  const rescheduled = previous?.date !== String(form.get("appointmentDate")) || previous?.loadType !== (await env.trice_auction_db.prepare("SELECT name FROM dropoff_types WHERE id=?").bind(Number(form.get("dropoffTypeId"))).first<{ name: string }>())?.name;
+  if (result.ok && internalAppointmentDetailsChanged(previous, current)) await queueAppointmentRescheduled(env.trice_auction_db, appointmentId, { previous, actorName: user.email, notifyCustomer: rescheduled });
+  return data(result);
 }
 
 export default function Detail({ loaderData, actionData }: Route.ComponentProps) {

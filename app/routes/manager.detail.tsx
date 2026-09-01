@@ -16,6 +16,7 @@ import {
   validateBooking,
 } from "../services/booking.server";
 import { cancelScheduledAppointment, queueAppointmentRescheduled } from "../services/notification.server";
+import { getInternalAppointmentSnapshot, internalAppointmentDetailsChanged } from "../services/internal-appointment-notifications.server";
 
 const runtime = env as unknown as {
   AUTH_SECRET?: string;
@@ -68,16 +69,17 @@ export async function action({ request, params }: AppointmentDetailRequestArgs) 
     ? `/admin/appointments/${appointmentId}`
     : null;
   if (form.get("cancel") === "1") {
-    const result = await cancelScheduledAppointment(env.trice_auction_db, appointmentId, env as never);
+    const result = await cancelScheduledAppointment(env.trice_auction_db, appointmentId, env as never, actor.email);
     if (!result.cancelled) return data({ ok: false, message: "This appointment is already cancelled or no longer scheduled." }, { status: 400 });
     return data({ ok: true, message: "Cancelled" });
   }
 
+  const previous = await getInternalAppointmentSnapshot(env.trice_auction_db, appointmentId);
   const input = bookingInputFromForm(form, appointment);
   const changed = input.appointmentDate !== appointment.date || input.dropoffTypeId !== appointment.typeId;
   if (form.get("intent") !== "override") {
     const result = await createBooking(env.trice_auction_db, input);
-    if (result.ok && changed) await queueAppointmentRescheduled(env.trice_auction_db, appointmentId);
+    if (result.ok && internalAppointmentDetailsChanged(previous, await getInternalAppointmentSnapshot(env.trice_auction_db, appointmentId))) await queueAppointmentRescheduled(env.trice_auction_db, appointmentId, { previous, actorName: actor.email, notifyCustomer: changed });
     if (result.ok && adminDetailPath) return redirect(`${adminDetailPath}?updated=1`);
     return data(result.ok ? result : { ...result, submitted: input });
   }
@@ -94,7 +96,7 @@ export async function action({ request, params }: AppointmentDetailRequestArgs) 
   const validation = await validateBooking(env.trice_auction_db, input);
   if (validation.ok) {
     const result = await createBooking(env.trice_auction_db, input);
-    if (result.ok && changed) await queueAppointmentRescheduled(env.trice_auction_db, appointmentId);
+    if (result.ok && internalAppointmentDetailsChanged(previous, await getInternalAppointmentSnapshot(env.trice_auction_db, appointmentId))) await queueAppointmentRescheduled(env.trice_auction_db, appointmentId, { previous, actorName: actor.email, notifyCustomer: changed });
     if (result.ok && adminDetailPath) return redirect(`${adminDetailPath}?updated=1`);
     return data(result.ok ? result : { ...result, submitted: input });
   }
@@ -130,7 +132,7 @@ export async function action({ request, params }: AppointmentDetailRequestArgs) 
     auditStatement,
     ...getBookingUpdateStatements(env.trice_auction_db, { ...input, allocations: validation.allocations }, validation.dropoffType),
   ]);
-  if (changed) await queueAppointmentRescheduled(env.trice_auction_db, appointmentId);
+  if (internalAppointmentDetailsChanged(previous, await getInternalAppointmentSnapshot(env.trice_auction_db, appointmentId))) await queueAppointmentRescheduled(env.trice_auction_db, appointmentId, { previous, actorName: actor.email, notifyCustomer: changed });
 
   if (adminDetailPath) return redirect(`${adminDetailPath}?updated=1`);
 
