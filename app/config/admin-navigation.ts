@@ -31,6 +31,9 @@ export const ADMIN_NAVIGATION: readonly AdminNavigationModule[] = [
       { label: "Booking Events", path: "/admin/booking-events", module: "Consignments", group: "Consignments", allowedRoles: ["admin"], requiredPermission: "admin:access", displayOrder: 10 },
       { label: "New Drop-off Date", path: "/admin/schedule/new", module: "Consignments", group: "Consignments", allowedRoles: ["admin"], requiredPermission: "admin:access", displayOrder: 20 },
       { label: "Schedule", path: "/admin/schedule", module: "Consignments", group: "Consignments", allowedRoles: ["admin"], requiredPermission: "admin:access", displayOrder: 30 },
+      { label: "Appointments", path: "/admin/appointments", module: "Consignments", group: "Consignments", allowedRoles: ["admin"], requiredPermission: "appointment:manage-all", displayOrder: 40 },
+      { label: "New Appointment", path: "/admin/appointments/new", module: "Consignments", group: "Consignments", allowedRoles: ["admin"], requiredPermission: "appointment:manage-all", displayOrder: 50 },
+      { label: "Capacity Settings", path: "/admin/capacity", module: "Consignments", group: "Consignments", allowedRoles: ["admin"], requiredPermission: "capacity:manage", displayOrder: 60 },
     ],
   },
   {
