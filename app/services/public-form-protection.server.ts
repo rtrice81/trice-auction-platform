@@ -68,7 +68,10 @@ async function validFormStartToken(token: string, form: ProtectedForm, runtime: 
 }
 
 async function verifyTurnstile(token: string, request: Request, runtime: Runtime) {
-  if (!token || !runtime.TURNSTILE_SECRET_KEY) return false;
+  if (!token || !runtime.TURNSTILE_SECRET_KEY) {
+    console.warn("turnstile-siteverify-failed", { success: false, "error-codes": [!token ? "missing-response-token" : "missing-secret"] });
+    return false;
+  }
   try {
     const body = new FormData();
     body.set("secret", runtime.TURNSTILE_SECRET_KEY);
@@ -76,9 +79,14 @@ async function verifyTurnstile(token: string, request: Request, runtime: Runtime
     const ip = request.headers.get("CF-Connecting-IP");
     if (ip) body.set("remoteip", ip);
     const response = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", { method: "POST", body });
-    const result = await response.json() as { success?: boolean };
-    return response.ok && result.success === true;
-  } catch {
+    const result = await response.json() as { success?: boolean; "error-codes"?: string[]; hostname?: string; action?: string };
+    if (!response.ok || result.success !== true) {
+      console.warn("turnstile-siteverify-failed", { success: result.success === true, "error-codes": result["error-codes"] ?? [], hostname: result.hostname, action: result.action });
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.warn("turnstile-siteverify-request-failed", { success: false, "error-codes": [error instanceof Error ? error.name : "request-failed"] });
     return false;
   }
 }
