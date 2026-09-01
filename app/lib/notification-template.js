@@ -1,5 +1,5 @@
 export const TEMPLATE_PLACEHOLDERS = ["first_name", "last_name", "appointment_date", "appointment_link", "event_name", "load_type", "business_name", "business_phone", "business_address"];
-export const TEMPLATE_TYPES = ["confirmation", "rescheduled", "cancelled", "reminder_1", "reminder_2"];
+export const TEMPLATE_TYPES = ["confirmation", "rescheduled", "cancelled", "waitlisted", "waitlist_confirmed", "waitlist_cancelled", "reminder_1", "reminder_2"];
 
 /** @param {string} value */
 export function unknownTemplatePlaceholders(value) {

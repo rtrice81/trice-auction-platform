@@ -22,9 +22,9 @@ export type DropoffEventInput = {
 
 export type EventArea = EventAreaInput & {
   name: string;
-  usedPoints: number;
-  remainingPoints: number;
-  overflowUsagePoints: number;
+  confirmedUsagePoints: number;
+  waitlistUsagePoints: number;
+  remainingWaitlistPoints: number;
 };
 
 export type ScheduledAppointment = {
@@ -45,6 +45,7 @@ export type DropoffEvent = {
   note: string | null;
   dailyCapacityPoints: number;
   scheduledAppointments: number;
+  waitlistedAppointments: number;
   usedPoints: number;
   remainingPoints: number;
   areas: EventArea[];
@@ -232,14 +233,16 @@ async function getDropoffEvent(
     .first<{ id: number; date: string; eventName: string | null; visibility: "public" | "private"; isOpen: number; notes: string | null }>();
   if (!event) throw new Response("Not Found", { status: 404 });
 
-  const [effective, summary, usage, appointments] = await Promise.all([
+  const [effective, summary, usage, waitlistUsage, appointments] = await Promise.all([
     getEffectiveDateCapacity(db, event.date, defaultDailyCapacity, areaDefaults),
     db.prepare(
-      `SELECT COUNT(*) AS scheduledAppointments, COALESCE(SUM(dt.capacity_points), 0) AS usedPoints
+      `SELECT SUM(CASE WHEN appointment.status = 'scheduled' THEN 1 ELSE 0 END) AS scheduledAppointments,
+              SUM(CASE WHEN appointment.status = 'waitlisted' THEN 1 ELSE 0 END) AS waitlistedAppointments,
+              COALESCE(SUM(CASE WHEN appointment.status = 'scheduled' THEN dt.capacity_points ELSE 0 END), 0) AS usedPoints
        FROM appointments appointment
        JOIN dropoff_types dt ON dt.id = appointment.dropoff_type_id
-       WHERE appointment.appointment_date = ? AND appointment.status = 'scheduled'`,
-    ).bind(event.date).first<{ scheduledAppointments: number; usedPoints: number }>(),
+       WHERE appointment.appointment_date = ? AND appointment.status IN ('scheduled', 'waitlisted')`,
+    ).bind(event.date).first<{ scheduledAppointments: number; waitlistedAppointments: number; usedPoints: number }>(),
     db.prepare(
       `SELECT allocation.item_area_id AS itemAreaId, COALESCE(SUM(allocation.capacity_points), 0) AS usedPoints
        FROM appointment_area_allocations allocation
@@ -247,11 +250,19 @@ async function getDropoffEvent(
        WHERE appointment.appointment_date = ? AND appointment.status = 'scheduled'
        GROUP BY allocation.item_area_id`,
     ).bind(event.date).all<{ itemAreaId: number; usedPoints: number }>(),
+    db.prepare(
+      `SELECT allocation.item_area_id AS itemAreaId, COALESCE(SUM(allocation.capacity_points), 0) AS usedPoints
+       FROM appointment_area_allocations allocation
+       JOIN appointments appointment ON appointment.id = allocation.appointment_id
+       WHERE appointment.appointment_date = ? AND appointment.status = 'waitlisted'
+       GROUP BY allocation.item_area_id`,
+    ).bind(event.date).all<{ itemAreaId: number; usedPoints: number }>(),
     getAppointmentsForDate(db, event.date),
   ]);
   if (!effective) throw new Response("Not Found", { status: 404 });
 
   const usedByArea = new Map(usage.results.map((row) => [row.itemAreaId, row.usedPoints]));
+  const waitlistedByArea = new Map(waitlistUsage.results.map((row) => [row.itemAreaId, row.usedPoints]));
   const usedPoints = summary?.usedPoints ?? 0;
   return {
     id: event.id,
@@ -262,6 +273,7 @@ async function getDropoffEvent(
     note: event.notes,
     dailyCapacityPoints: effective.dailyCapacityPoints,
     scheduledAppointments: summary?.scheduledAppointments ?? 0,
+    waitlistedAppointments: summary?.waitlistedAppointments ?? 0,
     usedPoints,
     remainingPoints: effective.dailyCapacityPoints - usedPoints,
     areas: effective.areas.map((area) => {
@@ -271,9 +283,9 @@ async function getDropoffEvent(
         name: area.name,
         capacityPoints: area.capacityPoints,
         overflowAllowancePoints: area.overflowAllowancePoints,
-        usedPoints: used,
-        remainingPoints: area.capacityPoints + area.overflowAllowancePoints - used,
-        overflowUsagePoints: Math.max(0, used - area.capacityPoints),
+        confirmedUsagePoints: used,
+        waitlistUsagePoints: waitlistedByArea.get(area.id) ?? 0,
+        remainingWaitlistPoints: Math.max(0, area.overflowAllowancePoints - (waitlistedByArea.get(area.id) ?? 0)),
       };
     }),
     appointments,
@@ -309,7 +321,7 @@ async function getAppointmentsForDate(db: D1Database, date: string): Promise<Sch
      LEFT JOIN item_areas area ON area.id = allocation.item_area_id
      WHERE appointment.appointment_date = ?
      GROUP BY appointment.id
-     ORDER BY appointment.created_at, appointment.id`,
+     ORDER BY CASE WHEN appointment.status = 'waitlisted' THEN 0 ELSE 1 END, appointment.waitlisted_at, appointment.created_at, appointment.id`,
   ).bind(date).all<ScheduledAppointment>();
   return results;
 }

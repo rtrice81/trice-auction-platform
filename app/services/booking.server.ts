@@ -64,7 +64,7 @@ export type CapacityContext = {
 };
 
 export type BookingResult =
-  | { ok: true; appointmentId: number; message: string }
+  | { ok: true; appointmentId: number; status: "scheduled" | "waitlisted"; message: string }
   | {
       ok: false;
       errors: string[];
@@ -79,6 +79,8 @@ export type BookingValidationResult =
       dropoffType: DropoffType;
       capacityContext: CapacityContext;
       allocations: BookingInput["allocations"];
+      appointmentStatus: "scheduled" | "waitlisted";
+      waitlistReason: string | null;
     }
   | {
       ok: false;
@@ -89,7 +91,8 @@ export type BookingValidationResult =
       allocations: BookingInput["allocations"];
     };
 
-const ACTIVE_APPOINTMENT_STATUS = "scheduled";
+const CONFIRMED_APPOINTMENT_STATUS: "scheduled" = "scheduled";
+const WAITLISTED_APPOINTMENT_STATUS: "waitlisted" = "waitlisted";
 
 export async function getBookingOptions(db: D1Database, options: { adminScheduling?: boolean } = {}) {
   const [dropoffTypesResult, itemAreasResult, datesResult] = await db.batch([
@@ -146,6 +149,7 @@ export async function createBooking(db: D1Database, input: BookingInput, options
     return {
       ok: true,
       appointmentId,
+      status: CONFIRMED_APPOINTMENT_STATUS,
       message: "Your appointment has been updated.",
     };
   }
@@ -153,16 +157,18 @@ export async function createBooking(db: D1Database, input: BookingInput, options
   const appointment = await db
     .prepare(
       `INSERT INTO appointments (
-        user_id, appointment_date, dropoff_type_id, description, status
-      ) VALUES (?, ?, ?, ?, ?)
+        user_id, appointment_date, dropoff_type_id, description, status, waitlisted_at, waitlist_reason
+      ) VALUES (?, ?, ?, ?, ?, CASE WHEN ? = 'waitlisted' THEN CURRENT_TIMESTAMP ELSE NULL END, ?)
       RETURNING id`,
     )
     .bind(
       input.userId,
       input.appointmentDate,
-      validation.dropoffType.id,
+        validation.dropoffType.id,
       input.description || null,
-      ACTIVE_APPOINTMENT_STATUS,
+      validation.appointmentStatus,
+      validation.appointmentStatus,
+      validation.waitlistReason,
     )
     .first<{ id: number }>();
 
@@ -196,7 +202,10 @@ export async function createBooking(db: D1Database, input: BookingInput, options
   return {
     ok: true,
     appointmentId: appointment.id,
-    message: "Your drop-off request has been scheduled.",
+    status: validation.appointmentStatus,
+    message: validation.appointmentStatus === WAITLISTED_APPOINTMENT_STATUS
+      ? "Your requested drop-off appointment is on the waitlist and is not yet confirmed."
+      : "Your drop-off request has been scheduled.",
   };
 }
 
@@ -210,7 +219,7 @@ export async function createBookingWithOverride(
   const appointment = await db.prepare(
     `INSERT INTO appointments (user_id, appointment_date, dropoff_type_id, description, status)
      VALUES (?, ?, ?, ?, ?) RETURNING id`,
-  ).bind(input.userId, input.appointmentDate, dropoffType.id, input.description || null, ACTIVE_APPOINTMENT_STATUS).first<{ id: number }>();
+  ).bind(input.userId, input.appointmentDate, dropoffType.id, input.description || null, CONFIRMED_APPOINTMENT_STATUS).first<{ id: number }>();
   if (!appointment) throw new Error("The overridden booking could not be created.");
   await db.batch(input.allocations.map((allocation) => db.prepare(
     `INSERT INTO appointment_area_allocations (appointment_id, item_area_id, allocation_percent, capacity_points)
@@ -264,14 +273,14 @@ export async function validateBooking(
        WHERE user_id = ?
          AND appointment_date >= ?
          AND appointment_date < ?
-         AND status = ?
+         AND status IN (?, ?)
          AND id != ?`,
     )
     .bind(
       input.userId,
       monthBounds.start,
       monthBounds.end,
-      ACTIVE_APPOINTMENT_STATUS,
+      ...[CONFIRMED_APPOINTMENT_STATUS, WAITLISTED_APPOINTMENT_STATUS],
       input.appointmentId ?? 0,
     )
     .first<{ count: number }>();
@@ -312,7 +321,21 @@ export async function validateBooking(
     return { ok: false, errors, overridableViolations, capacityContext, dropoffType, allocations };
   }
 
-  return { ok: true, dropoffType, capacityContext, allocations };
+  return { ok: true, dropoffType, capacityContext, allocations, appointmentStatus: capacity.status, waitlistReason: capacity.waitlistReason };
+}
+
+export async function promoteWaitlistedAppointment(db: D1Database, appointmentId: number) {
+  const appointment = await db.prepare(
+    `SELECT id, user_id AS userId, appointment_date AS appointmentDate, dropoff_type_id AS dropoffTypeId,
+            COALESCE(description, '') AS description, status
+     FROM appointments WHERE id = ?`,
+  ).bind(appointmentId).first<{ id: number; userId: number; appointmentDate: string; dropoffTypeId: number; description: string; status: string }>();
+  if (!appointment || appointment.status !== WAITLISTED_APPOINTMENT_STATUS) return { ok: false as const, error: "This appointment is not on the waitlist." };
+  const allocations = (await db.prepare("SELECT item_area_id AS itemAreaId, allocation_percent AS percentage FROM appointment_area_allocations WHERE appointment_id = ?").bind(appointmentId).all<{itemAreaId:number;percentage:number}>()).results;
+  const validation = await validateBooking(db, { ...appointment, allocations }, { allowAdminScheduling: true });
+  if (!validation.ok || validation.appointmentStatus !== CONFIRMED_APPOINTMENT_STATUS) return { ok: false as const, error: "Confirmed capacity is no longer available for this appointment." };
+  const result = await db.prepare("UPDATE appointments SET status='scheduled', updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='waitlisted'").bind(appointmentId).run();
+  return result.meta.changes ? { ok: true as const } : { ok: false as const, error: "The appointment could not be promoted." };
 }
 
 function getAdminDateStatus(date: AvailableDropoffDate & { dateOpen?: number; bookingEventId?: number | null; opensAt?: string | null; closesAt?: string | null; timeStorageVersion?: number | null; timezone?: string | null; eventActive?: number | null }) {
@@ -502,6 +525,8 @@ async function getCapacityEvaluation(
     return {
       errors: ["This drop-off date is not open for bookings."],
       overridableViolations: [],
+      status: CONFIRMED_APPOINTMENT_STATUS,
+      waitlistReason: null,
       context: {
         day: {
           date: appointmentDate,
@@ -521,7 +546,7 @@ async function getCapacityEvaluation(
     };
   }
 
-  const [dailyUsage, areaUsageResult] = await Promise.all([
+  const [dailyUsage, confirmedAreaUsageResult, waitlistAreaUsageResult] = await Promise.all([
     db
       .prepare(
         `SELECT COALESCE(SUM(dt.capacity_points), 0) AS usedPoints
@@ -531,7 +556,7 @@ async function getCapacityEvaluation(
            AND appointment.status = ?
            AND appointment.id != ?`,
       )
-      .bind(appointmentDate, ACTIVE_APPOINTMENT_STATUS, excludedAppointmentId ?? 0)
+      .bind(appointmentDate, CONFIRMED_APPOINTMENT_STATUS, excludedAppointmentId ?? 0)
       .first<{ usedPoints: number }>(),
     db
       .prepare(
@@ -544,39 +569,60 @@ async function getCapacityEvaluation(
            AND appointment.id != ?
          GROUP BY allocation.item_area_id`,
       )
-      .bind(appointmentDate, ACTIVE_APPOINTMENT_STATUS, excludedAppointmentId ?? 0)
+      .bind(appointmentDate, CONFIRMED_APPOINTMENT_STATUS, excludedAppointmentId ?? 0)
+      .all<{ itemAreaId: number; usedPoints: number }>(),
+    db
+      .prepare(
+        `SELECT allocation.item_area_id AS itemAreaId,
+                COALESCE(SUM(allocation.capacity_points), 0) AS usedPoints
+         FROM appointment_area_allocations allocation
+         JOIN appointments appointment ON appointment.id = allocation.appointment_id
+         WHERE appointment.appointment_date = ?
+           AND appointment.status = ?
+           AND appointment.id != ?
+         GROUP BY allocation.item_area_id`,
+      )
+      .bind(appointmentDate, WAITLISTED_APPOINTMENT_STATUS, excludedAppointmentId ?? 0)
       .all<{ itemAreaId: number; usedPoints: number }>(),
   ]);
   const dailyUsedPoints = dailyUsage?.usedPoints ?? 0;
   const dailyRequestedPoints = dropoffType.capacityPoints;
   const errors: string[] = [];
   const overridableViolations: string[] = [];
-  if (dailyUsedPoints + dailyRequestedPoints > effectiveCapacity.dailyCapacityPoints) {
-    const violation = "This drop-off date has reached its daily intake capacity.";
-    errors.push(violation);
-    overridableViolations.push(violation);
-  }
+  const dailyFull = dailyUsedPoints + dailyRequestedPoints > effectiveCapacity.dailyCapacityPoints;
 
   const usedByArea = new Map(
-    areaUsageResult.results.map((usage) => [usage.itemAreaId, usage.usedPoints]),
+    confirmedAreaUsageResult.results.map((usage) => [usage.itemAreaId, usage.usedPoints]),
   );
+  const waitlistedByArea = new Map(waitlistAreaUsageResult.results.map((usage) => [usage.itemAreaId, usage.usedPoints]));
+  const normalExceededAreas: string[] = [];
+  const waitlistFullAreas: string[] = [];
   const areas = itemAreas.map((area) => {
     const effectiveArea = effectiveCapacity.areas.find((candidate) => candidate.id === area.id)!;
     const percentage = allocations.find((allocation) => allocation.itemAreaId === area.id)!.percentage;
     const requestedPoints = calculateAllocatedPoints(dropoffType.capacityPoints, percentage);
     const usedPoints = usedByArea.get(area.id) ?? 0;
-    const allowedPoints = effectiveArea.capacityPoints + effectiveArea.overflowAllowancePoints;
-    if (usedPoints + requestedPoints > allowedPoints) {
-      const violation = `${area.name} has reached its capacity, including the allowed overflow.`;
-      errors.push(violation);
-      overridableViolations.push(violation);
-    }
+    const allowedPoints = effectiveArea.capacityPoints;
+    if (usedPoints + requestedPoints > effectiveArea.capacityPoints) normalExceededAreas.push(area.name);
+    if ((waitlistedByArea.get(area.id) ?? 0) + requestedPoints > effectiveArea.overflowAllowancePoints) waitlistFullAreas.push(area.name);
     return { id: area.id, name: area.name, usedPoints, requestedPoints, allowedPoints };
   });
+
+  const requiresWaitlist = normalExceededAreas.length > 0;
+  if (dailyFull) {
+    const violation = "This drop-off date has reached its confirmed daily intake capacity.";
+    errors.push(violation);
+    overridableViolations.push(violation);
+  } else if (requiresWaitlist && waitlistFullAreas.length) {
+    const violation = `The waitlist is full for ${waitlistFullAreas.join(", ")}.`;
+    errors.push(violation);
+  }
 
   return {
     errors,
     overridableViolations,
+    status: (requiresWaitlist && !dailyFull && !waitlistFullAreas.length ? WAITLISTED_APPOINTMENT_STATUS : CONFIRMED_APPOINTMENT_STATUS) as "scheduled" | "waitlisted",
+    waitlistReason: requiresWaitlist ? `Normal capacity reached for ${normalExceededAreas.join(", ")}.` : null,
     context: {
       day: {
         date: appointmentDate,

@@ -9,7 +9,7 @@ export function DropoffEventCard({ event }: { event: CustomerDropoffDate }) {
       {event.eventName ? <p className="mt-1 text-sm text-[#5f6368]">{event.eventName}</p> : null}
       <div className="mt-3"><AvailabilityBadge label={event.availability}/></div>
     </div>
-    {event.bookable ? <Link to={`/dropoffs/${event.eventId}/book`} className="ta-button ta-button-primary w-full sm:w-auto">Request Appointment</Link> : <button type="button" disabled className="ta-button ta-button-secondary w-full sm:w-auto">Request Appointment</button>}
+    {event.bookable ? <Link to={`/dropoffs/${event.eventId}/book`} className="ta-button ta-button-primary w-full sm:w-auto">{event.availability === "Waitlist" ? "Join Waitlist" : "Request Appointment"}</Link> : <button type="button" disabled className="ta-button ta-button-secondary w-full sm:w-auto">Request Appointment</button>}
   </article>;
 }
 

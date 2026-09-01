@@ -46,7 +46,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   }
   const result = await createBooking(env.trice_auction_db, { userId: user.id, ...pendingBooking });
   if (result.ok) {
-    await queueAppointmentCreated(env.trice_auction_db, result.appointmentId, env as never, user.email);
+    await queueAppointmentCreated(env.trice_auction_db, result.appointmentId, env as never, user.email, result.status);
     const token = getPendingBookingToken(request); const flashToken = await createBookingSuccessFlash(env.trice_auction_db, user.id, result.appointmentId); await deletePendingBooking(env.trice_auction_db, token);
     const headers = new Headers(); headers.append("Set-Cookie", clearPendingBookingCookie(request)); headers.append("Set-Cookie", bookingSuccessFlashCookie(flashToken, request));
     return redirect("/my-appointments", { headers });
@@ -63,7 +63,7 @@ export default function BookDropoff({ loaderData, actionData }: Route.ComponentP
     <PageCard title="Selected Drop-Off Event"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xl font-bold text-[#25272b]">{formatDropoffDate(event.eventDate)}</p>{event.eventName ? <p className="mt-1 text-[#5f6368]">{event.eventName}</p> : null}</div><AvailabilityBadge label={event.availability}/></div></PageCard>
     {loaderData.resumed ? <Notice variant="warning"><p className="font-semibold">Your pending booking has been restored.</p><p className="mt-1">Availability will be checked again when you submit.</p></Notice> : null}
     {actionData && !actionData.ok && !needsAuthentication ? <Notice variant="error"><p className="font-semibold">We could not schedule this drop-off.</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm">{actionData.errors.map((error) => <li key={error}>{error}</li>)}</ul></Notice> : null}
-    {!event.bookable ? <Notice variant="warning">This drop-off event is not currently available for signup. Please choose another scheduled event.</Notice> : <CustomerBookingForm appointmentDate={event.eventDate} booking={booking} dropoffTypes={loaderData.dropoffTypes} itemAreas={loaderData.itemAreas} isAuthenticated={loaderData.isAuthenticated} turnstileSiteKey={loaderData.turnstileSiteKey} formStartToken={loaderData.formStartToken}/>} 
+    {!event.bookable ? <Notice variant="warning">This drop-off event is not currently available for signup. Please choose another scheduled event.</Notice> : <CustomerBookingForm appointmentDate={event.eventDate} booking={booking} dropoffTypes={loaderData.dropoffTypes} itemAreas={loaderData.itemAreas} isAuthenticated={loaderData.isAuthenticated} turnstileSiteKey={loaderData.turnstileSiteKey} formStartToken={loaderData.formStartToken} waitlistOnly={event.availability === "Waitlist"}/>}
     <PendingBookingDialog open={needsAuthentication && !dismissedAccountPrompt} onClose={() => setDismissedAccountPrompt(true)}/>
   </div></PageShell>;
 }

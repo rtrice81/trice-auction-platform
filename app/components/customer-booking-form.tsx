@@ -13,9 +13,10 @@ type BookingFormProps = {
   isAuthenticated: boolean;
   turnstileSiteKey: string;
   formStartToken: string;
+  waitlistOnly?: boolean;
 };
 
-export function CustomerBookingForm({ appointmentDate, booking, dropoffTypes, itemAreas, isAuthenticated, turnstileSiteKey, formStartToken }: BookingFormProps) {
+export function CustomerBookingForm({ appointmentDate, booking, dropoffTypes, itemAreas, isAuthenticated, turnstileSiteKey, formStartToken, waitlistOnly = false }: BookingFormProps) {
   const navigation = useNavigation();
   const submitting = navigation.state !== "idle";
   const [turnstileVerified, setTurnstileVerified] = useState(false);
@@ -27,6 +28,6 @@ export function CustomerBookingForm({ appointmentDate, booking, dropoffTypes, it
     <fieldset><legend className="sr-only">Choose your load type</legend><PageCard title="1. Choose your load type"><div className="grid gap-4 sm:grid-cols-2">{dropoffTypes.map((dropoffType) => <label key={dropoffType.id} className="cursor-pointer rounded-2xl border border-stone-200 bg-white p-6 shadow-sm transition hover:border-[#9d302f] hover:shadow-md has-[:checked]:border-[#9d302f] has-[:checked]:ring-2 has-[:checked]:ring-[#f2d8d7]"><input required type="radio" name="dropoffTypeId" value={dropoffType.id} defaultChecked={booking ? booking.dropoffTypeId === dropoffType.id : undefined} className="sr-only"/><span className="block text-xl font-semibold text-stone-950">{dropoffType.name}</span></label>)}</div></PageCard></fieldset>
     <fieldset><legend className="sr-only">Allocate your item areas</legend><PageCard title="2. Allocate your item areas"><p className="mb-5 max-w-2xl text-sm leading-6 text-stone-600">Enter whole percentages for Smalls and Outdoor. Large/Furniture is calculated from the remaining percentage.</p><AreaAllocationFields itemAreas={itemAreas} allocations={booking?.allocations}/></PageCard></fieldset>
     <label className="block max-w-2xl text-sm font-semibold text-stone-800">Notes about your items <span className="font-normal text-stone-500">(optional)</span><textarea name="description" rows={4} defaultValue={booking?.description ?? ""} className="mt-2 block w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal outline-none focus:border-[#9d302f] focus:ring-2 focus:ring-[#f2d8d7]"/></label>
-    <Button type="submit" disabled={submitting || (requiresTurnstile && !turnstileVerified)}>{submitting ? "Saving your request…" : "Request drop-off appointment"}</Button>
+    {waitlistOnly ? <p className="rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm text-violet-950">This date is accepting waitlist requests. Joining the waitlist does not guarantee an appointment.</p> : null}<Button type="submit" disabled={submitting || (requiresTurnstile && !turnstileVerified)}>{submitting ? "Saving your request…" : waitlistOnly ? "Join Waitlist" : "Request drop-off appointment"}</Button>
   </Form>;
 }
