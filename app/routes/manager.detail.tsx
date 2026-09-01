@@ -7,6 +7,7 @@ import {
 } from "../services/appointment-override-audit.server";
 import { requireAnyRole } from "../services/auth.server";
 import { ConfirmationForm } from "../components/confirmation-form";
+import { AreaAllocationFields } from "../components/area-allocation-fields";
 import {
   createBooking,
   getBookingOptions,
@@ -119,7 +120,7 @@ export async function action({ request, params }: AppointmentDetailRequestArgs) 
       appointmentDate: input.appointmentDate,
       dropoffTypeId: input.dropoffTypeId,
       description: input.description || null,
-      allocations: input.allocations,
+      allocations: validation.allocations,
     },
     capacityContext: validation.capacityContext,
   });
@@ -127,7 +128,7 @@ export async function action({ request, params }: AppointmentDetailRequestArgs) 
   // D1 batches execute atomically, so an overridden edit cannot commit without its audit row.
   await env.trice_auction_db.batch([
     auditStatement,
-    ...getBookingUpdateStatements(env.trice_auction_db, input, validation.dropoffType),
+    ...getBookingUpdateStatements(env.trice_auction_db, { ...input, allocations: validation.allocations }, validation.dropoffType),
   ]);
   if (changed) await queueAppointmentRescheduled(env.trice_auction_db, appointmentId);
 
@@ -194,17 +195,7 @@ export function AppointmentManagementDetail({
             </option>
           ))}
         </select></label>
-        {options.itemAreas.map((area) => (
-          <label key={area.id} className="ta-field">
-            {area.name}
-            <input
-              name={`allocation-${area.id}`}
-              defaultValue={
-                allocations.find((allocation) => allocation.id === area.id)?.percentage || 0
-              }
-            />
-          </label>
-        ))}
+        <AreaAllocationFields itemAreas={options.itemAreas} allocations={allocations.map((allocation) => ({ itemAreaId: allocation.id, percentage: allocation.percentage }))} className="grid gap-4 sm:grid-cols-3" inputClassName="mt-1 block w-full border p-2" labelClassName="ta-field" />
         <label className="ta-field">Description<textarea name="description" defaultValue={appointment.description || ""} /></label>
         <button className="ta-button ta-button-primary">Save Changes</button>
       </Form>

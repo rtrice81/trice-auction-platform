@@ -5,6 +5,7 @@ import { requireOwnership, requireUser } from "../services/auth.server";
 import { createBooking, getBookingOptions } from "../services/booking.server";
 import { cancelScheduledAppointment } from "../services/notification.server";
 import { Button, FormField, Notice, PageCard, PageIntro, PageShell } from "../components/design-system";
+import { AreaAllocationFields } from "../components/area-allocation-fields";
 
 const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
 
@@ -94,7 +95,7 @@ export default function Detail({ loaderData, actionData }: Route.ComponentProps)
         <FormField label="Load type"><select name="dropoffTypeId" defaultValue={appointment.dropoffTypeId}>
           {options.dropoffTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
         </select></FormField>
-        <div className="grid gap-4 sm:col-span-2 sm:grid-cols-3">{options.itemAreas.map((area) => <FormField key={area.id} label={`${area.name} percentage`}><input name={`allocation-${area.id}`} type="number" min="0" max="100" defaultValue={allocations.find((allocation: any) => allocation.itemAreaId === area.id)?.percentage ?? 0} /></FormField>)}</div>
+        <div className="sm:col-span-2"><AreaAllocationFields itemAreas={options.itemAreas} allocations={allocations} /></div>
         <FormField label="Notes" className="sm:col-span-2"><textarea name="description" rows={4} defaultValue={appointment.description ?? ""} /></FormField>
         <div className="sm:col-span-2"><Button disabled={options.availableDates.length === 0}>Save changes</Button></div>
       </Form>}</PageCard>

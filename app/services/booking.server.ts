@@ -78,6 +78,7 @@ export type BookingValidationResult =
       ok: true;
       dropoffType: DropoffType;
       capacityContext: CapacityContext;
+      allocations: BookingInput["allocations"];
     }
   | {
       ok: false;
@@ -85,6 +86,7 @@ export type BookingValidationResult =
       overridableViolations: string[];
       capacityContext: CapacityContext | null;
       dropoffType: DropoffType | null;
+      allocations: BookingInput["allocations"];
     };
 
 const ACTIVE_APPOINTMENT_STATUS = "scheduled";
@@ -139,7 +141,7 @@ export async function createBooking(db: D1Database, input: BookingInput, options
   const appointmentId = input.appointmentId;
   if (appointmentId) {
     await db.batch(
-      getBookingUpdateStatements(db, { ...input, appointmentId }, validation.dropoffType),
+      getBookingUpdateStatements(db, { ...input, allocations: validation.allocations, appointmentId }, validation.dropoffType),
     );
     return {
       ok: true,
@@ -175,7 +177,7 @@ export async function createBooking(db: D1Database, input: BookingInput, options
   }
 
   await db.batch(
-    input.allocations.map((allocation) =>
+    validation.allocations.map((allocation) =>
       db
         .prepare(
           `INSERT INTO appointment_area_allocations (
@@ -223,23 +225,24 @@ export async function validateBooking(
   validationOptions: { allowAdminScheduling?: boolean } = {},
 ): Promise<BookingValidationResult> {
   const inputErrors = validateInput(input);
-  if (inputErrors.length > 0) return validationFailure(inputErrors);
+  if (inputErrors.length > 0) return validationFailure(inputErrors, input.allocations);
 
   if (!validationOptions.allowAdminScheduling) {
     const bookingEvent = await getBookableBookingEventForDate(db, input.appointmentDate);
-    if (!bookingEvent.eligible) return validationFailure(["This drop-off date is not currently available for signup."]);
+    if (!bookingEvent.eligible) return validationFailure(["This drop-off date is not currently available for signup."], input.allocations);
   }
 
   if (await isBlockedByDropoffBan(db, input)) {
-    return validationFailure(["You are currently unable to schedule a drop-off."]);
+    return validationFailure(["You are currently unable to schedule a drop-off."], input.allocations);
   }
 
   const [options, settings] = await Promise.all([getBookingOptions(db), getSettings(db)]);
   const dropoffType = options.dropoffTypes.find((type) => type.id === input.dropoffTypeId);
-  if (!dropoffType) return validationFailure(["Choose an available load type."]);
+  if (!dropoffType) return validationFailure(["Choose an available load type."], input.allocations);
 
-  const allocationErrors = validateAllocations(input.allocations, options.itemAreas);
-  if (allocationErrors.length > 0) return validationFailure(allocationErrors);
+  const allocations = deriveLargeFurnitureAllocation(input.allocations, options.itemAreas);
+  const allocationErrors = validateAllocations(allocations, options.itemAreas);
+  if (allocationErrors.length > 0) return validationFailure(allocationErrors, allocations);
 
   const effectiveCapacity = await getEffectiveDateCapacity(
     db,
@@ -250,7 +253,7 @@ export async function validateBooking(
   if (!effectiveCapacity) {
     return validationFailure([
       "This drop-off date has not been configured by an administrator.",
-    ]);
+    ], allocations);
   }
 
   const monthBounds = getMonthBounds(input.appointmentDate);
@@ -283,7 +286,7 @@ export async function validateBooking(
     input.appointmentDate,
     dropoffType,
     options.itemAreas,
-    input.allocations,
+    allocations,
     effectiveCapacity,
     input.appointmentId,
     validationOptions.allowAdminScheduling === true,
@@ -306,10 +309,10 @@ export async function validateBooking(
   ];
 
   if (errors.length > 0) {
-    return { ok: false, errors, overridableViolations, capacityContext, dropoffType };
+    return { ok: false, errors, overridableViolations, capacityContext, dropoffType, allocations };
   }
 
-  return { ok: true, dropoffType, capacityContext };
+  return { ok: true, dropoffType, capacityContext, allocations };
 }
 
 function getAdminDateStatus(date: AvailableDropoffDate & { dateOpen?: number; bookingEventId?: number | null; opensAt?: string | null; closesAt?: string | null; timeStorageVersion?: number | null; timezone?: string | null; eventActive?: number | null }) {
@@ -367,13 +370,14 @@ export function getBookingUpdateStatements(
   ];
 }
 
-function validationFailure(errors: string[]): BookingValidationResult {
+function validationFailure(errors: string[], allocations: BookingInput["allocations"]): BookingValidationResult {
   return {
     ok: false,
     errors,
     overridableViolations: [],
     capacityContext: null,
     dropoffType: null,
+    allocations,
   };
 }
 
@@ -406,6 +410,24 @@ function validateInput(input: BookingInput) {
   return errors;
 }
 
+export function deriveLargeFurnitureAllocation(allocations: BookingInput["allocations"], itemAreas: ItemArea[]) {
+  const smalls = itemAreas.find((area) => area.name === "Smalls");
+  const outdoor = itemAreas.find((area) => area.name === "Outdoor");
+  const large = itemAreas.find((area) => area.name === "Large/Furniture");
+  if (!smalls || !outdoor || !large) return allocations;
+
+  const submittedById = new Map(allocations.map((allocation) => [allocation.itemAreaId, allocation.percentage]));
+  const smallsPercentage = submittedById.get(smalls.id) ?? Number.NaN;
+  const outdoorPercentage = submittedById.get(outdoor.id) ?? Number.NaN;
+  // Never use a submitted Large/Furniture value: it is always the remaining percentage.
+  return [
+    ...allocations.filter((allocation) => ![smalls.id, outdoor.id, large.id].includes(allocation.itemAreaId)),
+    { itemAreaId: smalls.id, percentage: smallsPercentage },
+    { itemAreaId: large.id, percentage: 100 - smallsPercentage - outdoorPercentage },
+    { itemAreaId: outdoor.id, percentage: outdoorPercentage },
+  ];
+}
+
 function validateAllocations(allocations: BookingInput["allocations"], itemAreas: ItemArea[]) {
   const errors: string[] = [];
   const submittedIds = new Set(allocations.map((allocation) => allocation.itemAreaId));
@@ -424,7 +446,17 @@ function validateAllocations(allocations: BookingInput["allocations"], itemAreas
   ) {
     errors.push("Each item-area allocation must be a whole percentage from 0 to 100.");
   }
-  if (allocations.reduce((total, allocation) => total + allocation.percentage, 0) !== 100) {
+  const smalls = itemAreas.find((area) => area.name === "Smalls");
+  const outdoor = itemAreas.find((area) => area.name === "Outdoor");
+  const large = itemAreas.find((area) => area.name === "Large/Furniture");
+  const usesDerivedLarge = Boolean(smalls && outdoor && large);
+  if (usesDerivedLarge) {
+    const smallsPercentage = allocations.find((allocation) => allocation.itemAreaId === smalls!.id)?.percentage ?? Number.NaN;
+    const outdoorPercentage = allocations.find((allocation) => allocation.itemAreaId === outdoor!.id)?.percentage ?? Number.NaN;
+    if (Number.isFinite(smallsPercentage) && Number.isFinite(outdoorPercentage) && smallsPercentage + outdoorPercentage > 100) {
+      errors.push("Smalls and Outdoor percentages cannot exceed 100% combined.");
+    }
+  } else if (allocations.reduce((total, allocation) => total + allocation.percentage, 0) !== 100) {
     errors.push("Item-area allocations must total exactly 100%.");
   }
   return errors;
