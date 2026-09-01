@@ -13,8 +13,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     .prepare(
       `SELECT id, user_id AS userId, appointment_date AS appointmentDate,
               appointment_time AS appointmentTime, dropoff_type_id AS dropoffTypeId,
-              description, status
-       FROM appointments WHERE id = ?`,
+              description, status, day.event_name AS eventName, day.visibility
+       FROM appointments LEFT JOIN dropoff_days day ON day.dropoff_date = appointments.appointment_date WHERE appointments.id = ?`,
     )
     .bind(Number(params.id))
     .first<any>();
@@ -45,11 +45,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 export async function action({ request, params }: Route.ActionArgs) {
   const user = await requireUser(request, env.trice_auction_db, runtime);
   const appointment = await env.trice_auction_db
-    .prepare("SELECT user_id AS userId FROM appointments WHERE id = ?")
+    .prepare("SELECT appointments.user_id AS userId, day.visibility FROM appointments LEFT JOIN dropoff_days day ON day.dropoff_date = appointments.appointment_date WHERE appointments.id = ?")
     .bind(Number(params.id))
     .first<any>();
   if (!appointment) throw new Response("Not Found", { status: 404 });
   requireOwnership(user, appointment.userId);
+
+  if (appointment.visibility === "private") return data({ error: "Private appointments can only be changed by an administrator." }, { status: 403 });
 
   const form = await request.formData();
   const allocations = Array.from(form.entries())
@@ -72,8 +74,8 @@ export default function Detail({ loaderData, actionData }: Route.ComponentProps)
   const { appointment, allocations, options } = loaderData;
   return (
     <PageShell><div className="max-w-3xl"><Link to="/my-appointments" className="text-sm font-bold text-[#9d302f]">← My Appointments</Link><PageIntro eyebrow="Customer portal" title="Edit appointment">Update your scheduled drop-off details. Availability is confirmed when you save.</PageIntro>
-      {actionData && !actionData.ok ? <Notice variant="error">{actionData.errors.join(" ")}</Notice> : null}
-      <PageCard title="Appointment details"><Form method="post" className="grid gap-5 sm:grid-cols-2">
+      {actionData && "error" in actionData ? <Notice variant="error">{actionData.error}</Notice> : null}{actionData && "errors" in actionData ? <Notice variant="error">{actionData.errors.join(" ")}</Notice> : null}
+      <PageCard title={appointment.visibility === "private" ? (appointment.eventName || "Private appointment") : "Appointment details"}>{appointment.visibility === "private" ? <div className="grid gap-2 text-sm text-[#555960]"><p>{appointment.appointmentDate} · {appointment.appointmentTime || "Time TBD"} · {appointment.status}</p><p>{options.dropoffTypes.find((type) => type.id === appointment.dropoffTypeId)?.name}</p><p className="whitespace-pre-wrap">{appointment.description || ""}</p></div> : <Form method="post" className="grid gap-5 sm:grid-cols-2">
         <FormField label="Drop-off date"><select name="appointmentDate" defaultValue={appointment.appointmentDate}>
             {options.availableDates.map((date) => <option key={date.date} value={date.date}>{date.date}</option>)}
           </select></FormField>
@@ -85,7 +87,7 @@ export default function Detail({ loaderData, actionData }: Route.ComponentProps)
         <div className="grid gap-4 sm:col-span-2 sm:grid-cols-3">{options.itemAreas.map((area) => <FormField key={area.id} label={`${area.name} percentage`}><input name={`allocation-${area.id}`} type="number" min="0" max="100" defaultValue={allocations.find((allocation: any) => allocation.itemAreaId === area.id)?.percentage ?? 0} /></FormField>)}</div>
         <FormField label="Notes" className="sm:col-span-2"><textarea name="description" rows={4} defaultValue={appointment.description ?? ""} /></FormField>
         <div className="sm:col-span-2"><Button disabled={options.availableDates.length === 0}>Save changes</Button></div>
-      </Form></PageCard>
+      </Form>}</PageCard>
     </div></PageShell>
   );
 }
