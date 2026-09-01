@@ -101,7 +101,7 @@ export default function Detail({ loaderData, actionData }: Route.ComponentProps)
           {options.dropoffTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
         </select></FormField>
         <div className="sm:col-span-2"><AreaAllocationFields itemAreas={options.itemAreas} allocations={allocations} /></div>
-        <FormField label="Notes" className="sm:col-span-2"><textarea name="description" rows={4} defaultValue={appointment.description ?? ""} /></FormField>
+        <FormField label="What are you bringing?" className="sm:col-span-2"><textarea name="description" rows={5} maxLength={2000} defaultValue={appointment.description ?? ""} placeholder="Example: glassware, household items, lawn mower, bedroom suite, car, tools, collectibles, etc." className="min-h-32" /></FormField>
         <div className="sm:col-span-2"><Button disabled={options.availableDates.length === 0}>Save changes</Button></div>
       </Form>}</PageCard>
       {appointment.visibility !== "private" && appointment.status === "scheduled" ? <Form method="post" className="mt-5"><input type="hidden" name="intent" value="cancel"/><button className="rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-800">Cancel appointment</button></Form> : null}

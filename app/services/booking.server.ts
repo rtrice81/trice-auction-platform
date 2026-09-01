@@ -93,6 +93,7 @@ export type BookingValidationResult =
 
 const CONFIRMED_APPOINTMENT_STATUS: "scheduled" = "scheduled";
 const WAITLISTED_APPOINTMENT_STATUS: "waitlisted" = "waitlisted";
+const MAX_APPOINTMENT_DESCRIPTION_LENGTH = 2000;
 
 export async function getBookingOptions(db: D1Database, options: { adminScheduling?: boolean } = {}) {
   const [dropoffTypesResult, itemAreasResult, datesResult] = await db.batch([
@@ -429,6 +430,9 @@ function validateInput(input: BookingInput) {
   if (!isIsoDate(input.appointmentDate)) errors.push("Choose a valid drop-off date.");
   if (!Number.isInteger(input.dropoffTypeId) || input.dropoffTypeId < 1) {
     errors.push("Choose a load type.");
+  }
+  if (input.description.length > MAX_APPOINTMENT_DESCRIPTION_LENGTH) {
+    errors.push(`What are you bringing? must be ${MAX_APPOINTMENT_DESCRIPTION_LENGTH.toLocaleString()} characters or fewer.`);
   }
   return errors;
 }
