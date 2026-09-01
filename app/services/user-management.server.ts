@@ -1,4 +1,5 @@
 import type { Role } from "./auth.server";
+import { displayUserName } from "../lib/user-display-name";
 
 const MANAGED_ROLES: readonly Role[] = ["customer", "employee", "manager", "admin"];
 
@@ -29,32 +30,33 @@ export async function listManagedUsers(db: D1Database, search = ""): Promise<Man
     .prepare(
       `SELECT
         id,
-        COALESCE(NULLIF(TRIM(first_name || ' ' || last_name), ''), email) AS name,
-        email,
+        users.first_name AS firstName,
+        users.last_name AS lastName,
+        auth_identity.name AS legacyName,
+        users.email,
         role,
         active,
         created_at AS createdAt
-      FROM users
+      FROM users LEFT JOIN "user" AS auth_identity ON auth_identity.id = users.auth_user_id
       WHERE ? = ''
-         OR LOWER(email) LIKE LOWER(?)
-         OR LOWER(COALESCE(NULLIF(TRIM(first_name || ' ' || last_name), ''), email)) LIKE LOWER(?)
-      ORDER BY active DESC, name COLLATE NOCASE ASC, id ASC`,
+         OR LOWER(users.email) LIKE LOWER(?)
+         OR LOWER(COALESCE(NULLIF(TRIM(users.first_name || ' ' || users.last_name), ''), auth_identity.name, users.email)) LIKE LOWER(?)
+      ORDER BY active DESC, users.email COLLATE NOCASE ASC, users.id ASC`,
     )
     .bind(query, searchPattern, searchPattern)
-    .all<Omit<ManagedUser, "active"> & { active: number }>();
+    .all<Omit<ManagedUser, "active" | "name"> & { active: number; firstName: string | null; lastName: string | null; legacyName: string | null }>();
 
-  return results.map((user) => ({ ...user, active: user.active === 1 }));
+  return results.map((user) => ({ id: user.id, name: displayUserName(user), email: user.email, role: user.role, active: user.active === 1, createdAt: user.createdAt }));
 }
 
 export async function getManagedUser(db: D1Database, userId: number): Promise<EditableManagedUser | null> {
   if (!isPositiveInteger(userId)) return null;
   const user = await db.prepare(
-    `SELECT id, first_name AS firstName, last_name AS lastName, phone, auth_user_id AS authUserId,
-      COALESCE(NULLIF(TRIM(first_name || ' ' || last_name), ''), email) AS name,
-      email, role, active, created_at AS createdAt
-     FROM users WHERE id = ?`,
-  ).bind(userId).first<Omit<EditableManagedUser, "active"> & { active: number }>();
-  return user ? { ...user, active: user.active === 1 } : null;
+    `SELECT users.id, users.first_name AS firstName, users.last_name AS lastName, users.phone, users.auth_user_id AS authUserId,
+      auth_identity.name AS legacyName, users.email, users.role, users.active, users.created_at AS createdAt
+     FROM users LEFT JOIN "user" AS auth_identity ON auth_identity.id = users.auth_user_id WHERE users.id = ?`,
+  ).bind(userId).first<Omit<EditableManagedUser, "active" | "name"> & { active: number; legacyName: string | null }>();
+  return user ? { ...user, name: displayUserName(user), active: user.active === 1 } : null;
 }
 
 export async function updateManagedUser(

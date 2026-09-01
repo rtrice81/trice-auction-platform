@@ -77,13 +77,13 @@ export function requireOwnership(user: ApplicationUser, ownerUserId: number) {
   }
 }
 
-export async function syncApplicationUser(db: D1Database, identity: { id: string; email: string; name?: string | null }) {
+export async function syncApplicationUser(db: D1Database, identity: { id: string; email: string; name?: string | null; firstName?: string; lastName?: string; phone?: string | null }) {
   const existing = await db.prepare("SELECT id FROM users WHERE auth_user_id = ? OR email = ?").bind(identity.id, identity.email).first<{ id: number }>();
   if (existing) {
     await db.prepare("UPDATE users SET auth_user_id = ? WHERE id = ?").bind(identity.id, existing.id).run();
     return existing.id;
   }
   const names = (identity.name ?? "").trim().split(/\s+/, 2);
-  const result = await db.prepare("INSERT INTO users (email, first_name, last_name, role, auth_user_id, active) VALUES (?, ?, ?, 'customer', ?, 1)").bind(identity.email, names[0] || null, names[1] || null, identity.id).run();
+  const result = await db.prepare("INSERT INTO users (email, first_name, last_name, phone, role, auth_user_id, active) VALUES (?, ?, ?, ?, 'customer', ?, 1)").bind(identity.email, (identity.firstName ?? names[0]) || null, (identity.lastName ?? names[1]) || null, identity.phone ?? null, identity.id).run();
   return Number(result.meta.last_row_id);
 }
