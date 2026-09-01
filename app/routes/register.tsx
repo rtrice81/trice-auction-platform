@@ -1,11 +1,11 @@
 import { env } from "cloudflare:workers";
 import { useCallback, useRef, useState } from "react";
-import { data, Form, redirect } from "react-router";
+import { data, Form, redirect, useSubmit } from "react-router";
 import type { Route } from "./+types/register";
 import { getAuth, syncApplicationUser } from "../services/auth.server";
 import { getPendingBookingToken } from "../services/pending-booking.server";
 import { createPublicFormStart, verifyPublicFormSubmission } from "../services/public-form-protection.server";
-import { PublicFormProtection, reportTurnstileFormSubmission } from "../components/public-form-protection";
+import { PublicFormProtection } from "../components/public-form-protection";
 const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string; TURNSTILE_SITE_KEY?: string; TURNSTILE_SECRET_KEY?: string };
 export async function loader({ request }: Route.LoaderArgs) {
   const protection = await createPublicFormStart(request, "registration", runtime);
@@ -24,8 +24,9 @@ export async function action({ request }: Route.ActionArgs) {
 }
 export default function Register({ loaderData, actionData }: Route.ComponentProps) {
   const [turnstileVerified, setTurnstileVerified] = useState(false);
-  const responseInputRef = useRef<HTMLInputElement>(null);
+  const turnstileTokenRef = useRef("");
+  const submit = useSubmit();
   const handleTurnstileChange = useCallback((hasToken: boolean) => setTurnstileVerified(hasToken), []);
 
-  return <main className="mx-auto max-w-md p-8"><h1 className="text-3xl font-bold">Create your account</h1>{actionData?.error && <p role="alert">{actionData.error}</p>}<Form method="post" className="mt-6 space-y-4" onSubmit={(event) => { if (!turnstileVerified || !reportTurnstileFormSubmission(event.currentTarget)) event.preventDefault(); }}><input required name="name" placeholder="Name" className="w-full border p-2"/><input required type="email" name="email" placeholder="Email" className="w-full border p-2"/><input required minLength={8} type="password" name="password" placeholder="Password" className="w-full border p-2"/><input ref={responseInputRef} type="hidden" name="cf-turnstile-response" defaultValue=""/><PublicFormProtection siteKey={loaderData.turnstileSiteKey} formStartToken={loaderData.formStartToken} onTokenChange={handleTurnstileChange} responseInputRef={responseInputRef}/><button disabled={!turnstileVerified} className="bg-stone-900 px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-60">Register</button></Form></main>;
+  return <main className="mx-auto max-w-md p-8"><h1 className="text-3xl font-bold">Create your account</h1>{actionData?.error && <p role="alert">{actionData.error}</p>}<Form method="post" className="mt-6 space-y-4" onSubmit={(event) => { event.preventDefault(); const formData = new FormData(event.currentTarget); formData.set("cf-turnstile-response", turnstileTokenRef.current); const submittedToken = formData.get("cf-turnstile-response"); if (!turnstileVerified || typeof submittedToken !== "string" || !submittedToken) return; console.info("turnstile-submit-check", { hasToken: Boolean(submittedToken), tokenLength: typeof submittedToken === "string" ? submittedToken.length : 0, formDataHasToken: formData.has("cf-turnstile-response") }); submit(formData, { method: "post" }); }}><input required name="name" placeholder="Name" className="w-full border p-2"/><input required type="email" name="email" placeholder="Email" className="w-full border p-2"/><input required minLength={8} type="password" name="password" placeholder="Password" className="w-full border p-2"/><PublicFormProtection siteKey={loaderData.turnstileSiteKey} formStartToken={loaderData.formStartToken} onTokenChange={handleTurnstileChange} turnstileTokenRef={turnstileTokenRef}/><button disabled={!turnstileVerified} className="bg-stone-900 px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-60">Register</button></Form></main>;
 }

@@ -28,26 +28,10 @@ type PublicFormProtectionProps = {
   siteKey: string;
   formStartToken: string;
   onTokenChange: (hasToken: boolean) => void;
-  responseInputRef: RefObject<HTMLInputElement | null>;
+  turnstileTokenRef: RefObject<string>;
 };
 
-function reportTurnstileToken(token: string, form: HTMLFormElement | null) {
-  const formData = form ? new FormData(form) : null;
-  const submittedToken = String(formData?.get("cf-turnstile-response") ?? "");
-  console.info("turnstile-client-token", {
-    hasToken: Boolean(token),
-    tokenLength: token.length,
-    formDataHasToken: Boolean(submittedToken),
-  });
-  return Boolean(formData?.has("cf-turnstile-response") && submittedToken);
-}
-
-export function reportTurnstileFormSubmission(form: HTMLFormElement) {
-  const token = String(new FormData(form).get("cf-turnstile-response") ?? "");
-  return reportTurnstileToken(token, form);
-}
-
-export function PublicFormProtection({ siteKey, formStartToken, onTokenChange, responseInputRef }: PublicFormProtectionProps) {
+export function PublicFormProtection({ siteKey, formStartToken, onTokenChange, turnstileTokenRef }: PublicFormProtectionProps) {
   const widget = useRef<HTMLDivElement>(null);
   const widgetId = useRef<string | undefined>(undefined);
   const [hasToken, setHasToken] = useState(false);
@@ -58,10 +42,7 @@ export function PublicFormProtection({ siteKey, formStartToken, onTokenChange, r
     setHasToken(false);
 
     const clearTokenAndReset = () => {
-      if (responseInputRef.current) {
-        responseInputRef.current.value = "";
-        responseInputRef.current.defaultValue = "";
-      }
+      turnstileTokenRef.current = "";
       setHasToken(false);
       onTokenChange(false);
       if (widgetId.current) window.turnstile?.reset(widgetId.current);
@@ -72,20 +53,14 @@ export function PublicFormProtection({ siteKey, formStartToken, onTokenChange, r
       widgetId.current = window.turnstile.render(widget.current, {
         sitekey: siteKey,
         callback: (nextToken) => {
-          // This exact input is rendered directly by the route's <Form>. Update it
-          // synchronously before React Router can construct its native FormData.
-          if (responseInputRef.current) {
-            responseInputRef.current.value = nextToken;
-            responseInputRef.current.defaultValue = nextToken;
-          }
-          const hasSubmittedToken = reportTurnstileToken(nextToken, responseInputRef.current?.form ?? null);
+          turnstileTokenRef.current = nextToken;
           setHasToken(Boolean(nextToken));
-          onTokenChange(Boolean(nextToken) && hasSubmittedToken);
+          onTokenChange(Boolean(nextToken));
         },
         "expired-callback": clearTokenAndReset,
         "error-callback": clearTokenAndReset,
-        // React controls the only response field in this form. This avoids duplicate
-        // cf-turnstile-response inputs when React Router builds FormData.
+        // The application writes the widget token to the exact FormData it submits.
+        // This avoids Turnstile creating a second DOM response field.
         "response-field": false,
         theme: "auto",
         size: "flexible",
