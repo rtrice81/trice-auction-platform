@@ -46,7 +46,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   }
   const result = await createBooking(env.trice_auction_db, { userId: user.id, ...pendingBooking });
   if (result.ok) {
-    await queueAppointmentCreated(env.trice_auction_db, result.appointmentId);
+    await queueAppointmentCreated(env.trice_auction_db, result.appointmentId, env as never);
     const token = getPendingBookingToken(request); const flashToken = await createBookingSuccessFlash(env.trice_auction_db, user.id, result.appointmentId); await deletePendingBooking(env.trice_auction_db, token);
     const headers = new Headers(); headers.append("Set-Cookie", clearPendingBookingCookie(request)); headers.append("Set-Cookie", bookingSuccessFlashCookie(flashToken, request));
     return redirect("/my-appointments", { headers });
