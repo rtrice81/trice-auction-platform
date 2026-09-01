@@ -29,19 +29,20 @@ export async function listManagedUsers(db: D1Database, search = ""): Promise<Man
   const { results } = await db
     .prepare(
       `SELECT
-        id,
-        users.first_name AS firstName,
-        users.last_name AS lastName,
-        auth_identity.name AS legacyName,
-        users.email,
-        role,
-        active,
-        created_at AS createdAt
-      FROM users LEFT JOIN "user" AS auth_identity ON auth_identity.id = users.auth_user_id
+        u.id AS id,
+        u.first_name AS firstName,
+        u.last_name AS lastName,
+        ai.name AS legacyName,
+        u.email AS email,
+        u.role AS role,
+        u.active AS active,
+        u.created_at AS createdAt
+      FROM users AS u
+      LEFT JOIN "user" AS ai ON ai.id = u.auth_user_id
       WHERE ? = ''
-         OR LOWER(users.email) LIKE LOWER(?)
-         OR LOWER(COALESCE(NULLIF(TRIM(users.first_name || ' ' || users.last_name), ''), auth_identity.name, users.email)) LIKE LOWER(?)
-      ORDER BY active DESC, users.email COLLATE NOCASE ASC, users.id ASC`,
+         OR LOWER(u.email) LIKE LOWER(?)
+         OR LOWER(COALESCE(NULLIF(TRIM(u.first_name || ' ' || u.last_name), ''), ai.name, u.email)) LIKE LOWER(?)
+      ORDER BY u.active DESC, u.email COLLATE NOCASE ASC, u.id ASC`,
     )
     .bind(query, searchPattern, searchPattern)
     .all<Omit<ManagedUser, "active" | "name"> & { active: number; firstName: string | null; lastName: string | null; legacyName: string | null }>();
@@ -52,9 +53,11 @@ export async function listManagedUsers(db: D1Database, search = ""): Promise<Man
 export async function getManagedUser(db: D1Database, userId: number): Promise<EditableManagedUser | null> {
   if (!isPositiveInteger(userId)) return null;
   const user = await db.prepare(
-    `SELECT users.id, users.first_name AS firstName, users.last_name AS lastName, users.phone, users.auth_user_id AS authUserId,
-      auth_identity.name AS legacyName, users.email, users.role, users.active, users.created_at AS createdAt
-     FROM users LEFT JOIN "user" AS auth_identity ON auth_identity.id = users.auth_user_id WHERE users.id = ?`,
+    `SELECT u.id AS id, u.first_name AS firstName, u.last_name AS lastName, u.phone AS phone, u.auth_user_id AS authUserId,
+      ai.name AS legacyName, u.email AS email, u.role AS role, u.active AS active, u.created_at AS createdAt
+     FROM users AS u
+     LEFT JOIN "user" AS ai ON ai.id = u.auth_user_id
+     WHERE u.id = ?`,
   ).bind(userId).first<Omit<EditableManagedUser, "active" | "name"> & { active: number; legacyName: string | null }>();
   return user ? { ...user, name: displayUserName(user), active: user.active === 1 } : null;
 }
