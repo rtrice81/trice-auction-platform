@@ -1,59 +1,78 @@
 import { env } from "cloudflare:workers";
 import { data, Form } from "react-router";
+import { useState } from "react";
 import type { Route } from "./+types/admin.notifications";
 import { requireRole } from "../services/auth.server";
-import { getNotificationProviderStatuses, getNotificationSettings, saveNotificationSettings } from "../services/notification.server";
+import { getNotificationProviderStatuses, getNotificationSettings, saveNotificationSettings, sendTestNotification } from "../services/notification.server";
 import { PageIntro, PageShell, Notice } from "../components/design-system";
+import { reminderOffsetMinutes, reminderParts } from "../lib/notification-reminder.js";
 
 const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
 const providerEnvironment = env as unknown as { RESEND_API_KEY?: string; RESEND_FROM_EMAIL?: string; TELNYX_API_KEY?: string; TELNYX_FROM_NUMBER?: string; TELNYX_WEBHOOK_PUBLIC_KEY?: string };
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireRole(request, env.trice_auction_db, runtime, "admin");
+  const admin = await requireRole(request, env.trice_auction_db, runtime, "admin");
   const settings = await getNotificationSettings(env.trice_auction_db);
-  // Status contains only safe booleans and descriptions; secrets never leave this loader.
-  return { settings, providers: getNotificationProviderStatuses(settings, providerEnvironment) };
+  const phone = await env.trice_auction_db.prepare("SELECT phone FROM users WHERE id = ?").bind(admin.id).first<{ phone: string | null }>();
+  return { settings, providers: getNotificationProviderStatuses(settings, providerEnvironment), admin: { email: admin.email, phone: phone?.phone || "" } };
 }
 
 export async function action({ request }: Route.ActionArgs) {
   await requireRole(request, env.trice_auction_db, runtime, "admin");
   const form = await request.formData();
-  const minutes = (name: string) => Math.max(0, Math.floor(Number(form.get(name)) || 0));
-  const emailProvider = String(form.get("emailProvider") || "");
-  const smsProvider = String(form.get("smsProvider") || "");
-  const senderAddress = String(form.get("emailSenderAddress") || "").trim();
-  const replyTo = String(form.get("emailReplyTo") || "").trim();
-  const senderNumber = String(form.get("smsSenderNumber") || "").trim();
-  if (emailProvider !== "resend" || smsProvider !== "telnyx") return data({ ok: false as const, error: "Only the currently supported Resend and Telnyx providers may be selected." }, { status: 400 });
+  const intent = String(form.get("intent") || "save-settings");
+  if (intent === "send-test") return sendTest(request, form);
+  return saveSettings(form);
+}
+
+async function sendTest(request: Request, form: FormData) {
+  const channel = String(form.get("testChannel") || "");
+  const destination = String(form.get("testDestination") || "").trim();
+  if (channel !== "email" && channel !== "sms") return data({ ok: false as const, testError: "Choose Email or SMS." }, { status: 400 });
+  if (channel === "email" && !/^\S+@\S+\.\S+$/.test(destination)) return data({ ok: false as const, testError: "Enter a valid test email address." }, { status: 400 });
+  if (channel === "sms" && destination.replace(/\D/g, "").length < 10) return data({ ok: false as const, testError: "Enter a valid test phone number." }, { status: 400 });
+  try {
+    await sendTestNotification(env.trice_auction_db, providerEnvironment, { channel, destination, subject: String(form.get("testSubject") || "").trim() || undefined });
+    return data({ ok: true as const, testMessage: `Test ${channel === "email" ? "email" : "SMS"} sent to ${destination}.` });
+  } catch (error) {
+    const message = error instanceof Error ? error.message.replace(/Bearer\s+\S+/gi, "[redacted]").slice(0, 240) : "Provider delivery failed.";
+    return data({ ok: false as const, testError: message }, { status: 400 });
+  }
+}
+
+async function saveSettings(form: FormData) {
+  const offset = (prefix: "first" | "second") => String(reminderOffsetMinutes(form.get(`${prefix}OffsetAmount`), String(form.get(`${prefix}OffsetUnit`))));
+  const emailProvider = String(form.get("emailProvider") || ""), smsProvider = String(form.get("smsProvider") || "");
+  const senderAddress = String(form.get("emailSenderAddress") || "").trim(), replyTo = String(form.get("emailReplyTo") || "").trim(), senderNumber = String(form.get("smsSenderNumber") || "").trim();
+  if (emailProvider !== "resend" || smsProvider !== "telnyx") return data({ ok: false as const, error: "Only Resend and Telnyx are currently supported." }, { status: 400 });
   if (senderAddress && !/^\S+@\S+\.\S+$/.test(senderAddress)) return data({ ok: false as const, error: "Enter a valid sender email address." }, { status: 400 });
   if (replyTo && !/^\S+@\S+\.\S+$/.test(replyTo)) return data({ ok: false as const, error: "Enter a valid reply-to email address." }, { status: 400 });
   if (senderNumber && senderNumber.replace(/\D/g, "").length < 10) return data({ ok: false as const, error: "Enter a valid sender phone number." }, { status: 400 });
   await saveNotificationSettings(env.trice_auction_db, {
-    "notifications.first_reminder_enabled": form.get("firstEnabled") === "on" ? "1" : "0", "notifications.first_reminder_offset_minutes": String(minutes("firstOffset")),
-    "notifications.second_reminder_enabled": form.get("secondEnabled") === "on" ? "1" : "0", "notifications.second_reminder_offset_minutes": String(minutes("secondOffset")),
+    "notifications.first_reminder_enabled": form.get("firstEnabled") === "on" ? "1" : "0", "notifications.first_reminder_offset_minutes": offset("first"),
+    "notifications.second_reminder_enabled": form.get("secondEnabled") === "on" ? "1" : "0", "notifications.second_reminder_offset_minutes": offset("second"),
     "notifications.email_enabled": form.get("emailEnabled") === "on" ? "1" : "0", "notifications.sms_enabled": form.get("smsEnabled") === "on" ? "1" : "0",
     "notifications.email_provider": emailProvider, "notifications.email_sender_name": String(form.get("emailSenderName") || "").trim(), "notifications.email_sender_address": senderAddress, "notifications.email_reply_to": replyTo,
     "notifications.sms_provider": smsProvider, "notifications.sms_sender_number": senderNumber, "notifications.sms_messaging_profile_id": String(form.get("smsMessagingProfileId") || "").trim(),
   });
-  return data({ ok: true as const });
+  return data({ ok: true as const, message: "Notification settings saved." });
 }
 
 export default function AdminNotifications({ loaderData, actionData }: Route.ComponentProps) {
-  const { settings: s, providers } = loaderData;
-  return <PageShell><div className="max-w-3xl"><PageIntro eyebrow="Trice Auctions · Administration" title="Notifications">Configure transactional appointment channels and reminder timing.</PageIntro>
+  const { settings: s, providers, admin } = loaderData;
+  return <PageShell><div className="max-w-4xl"><PageIntro eyebrow="Trice Auctions · Administration" title="Notifications">Configure transactional appointment channels, provider identity, and reminder timing.</PageIntro>
     <Notice variant="warning">API credentials are stored securely in Cloudflare and are not displayed here.</Notice>
-    {actionData?.ok ? <Notice variant="success">Notification settings saved.</Notice> : null}{actionData && !actionData.ok ? <Notice variant="error">{actionData.error}</Notice> : null}
-    <Form method="post" className="mt-6 space-y-6 rounded-xl border bg-white p-6">
-      <ProviderCard title="Email Provider" status={providers.email.status}><label className="ta-field">Selected provider<select name="emailProvider" defaultValue={s["notifications.email_provider"]}><option value="resend">Resend</option></select></label><Field label="Sender display name" name="emailSenderName" value={s["notifications.email_sender_name"]}/><Field label="Sender email address" name="emailSenderAddress" type="email" value={s["notifications.email_sender_address"] || providers.email.senderAddress || ""}/><Field label="Reply-to address (optional)" name="emailReplyTo" type="email" value={s["notifications.email_reply_to"]}/><MissingSecret status={providers.email.status} provider="Resend" secret="RESEND_API_KEY"/></ProviderCard>
-      <ProviderCard title="SMS Provider" status={providers.sms.status}><label className="ta-field">Selected provider<select name="smsProvider" defaultValue={s["notifications.sms_provider"]}><option value="telnyx">Telnyx</option></select></label><Field label="Sender / from phone number" name="smsSenderNumber" type="tel" value={s["notifications.sms_sender_number"] || providers.sms.senderNumber || ""}/><Field label="Messaging profile ID (optional)" name="smsMessagingProfileId" value={s["notifications.sms_messaging_profile_id"]}/><p className="text-sm text-stone-600">Inbound webhook: <code>/webhooks/telnyx/sms</code> · Signature validation: <strong>{providers.sms.inboundWebhook.signatureValidationConfigured ? "Configured" : "Not Configured"}</strong></p><MissingSecret status={providers.sms.status} provider="Telnyx" secret="TELNYX_API_KEY"/>{!providers.sms.inboundWebhook.signatureValidationConfigured ? <p className="text-sm text-amber-800">Set the <code>TELNYX_WEBHOOK_PUBLIC_KEY</code> Cloudflare secret before enabling inbound SMS keywords.</p> : null}</ProviderCard>
-      <fieldset className="border-t pt-6"><legend className="text-xl font-bold">Customer reminders</legend><Reminder name="first" label="First reminder" enabled={s["notifications.first_reminder_enabled"] === "1"} offset={s["notifications.first_reminder_offset_minutes"]}/><Reminder name="second" label="Second reminder" enabled={s["notifications.second_reminder_enabled"] === "1"} offset={s["notifications.second_reminder_offset_minutes"]}/><p className="mt-3 text-sm text-stone-600">Offsets are minutes before the appointment (7 days = 10080, 48 hours = 2880, day before = 1440).</p></fieldset>
-      <fieldset className="border-t pt-6"><legend className="text-xl font-bold">Channels</legend><label className="mt-4 flex gap-3"><input name="emailEnabled" type="checkbox" defaultChecked={s["notifications.email_enabled"] === "1"}/><span>Email globally enabled</span></label><label className="mt-3 flex gap-3"><input name="smsEnabled" type="checkbox" defaultChecked={s["notifications.sms_enabled"] === "1"}/><span>SMS globally enabled</span></label></fieldset>
-      <button className="ta-button ta-button-primary">Save notification settings</button>
+    {actionData && "message" in actionData ? <Notice variant="success">{actionData.message}</Notice> : null}{actionData && "testMessage" in actionData ? <Notice variant="success">{actionData.testMessage}</Notice> : null}{actionData && !actionData.ok ? <Notice variant="error">{"error" in actionData ? actionData.error : actionData.testError}</Notice> : null}
+    <Form method="post" className="mt-6 space-y-6"><input type="hidden" name="intent" value="save-settings"/>
+      <section className="rounded-xl border border-stone-200 bg-white p-6"><h2 className="text-xl font-bold text-[#9d302f]">Channels</h2><div className="mt-5 grid gap-4 md:grid-cols-2"><ChannelCard label="Email" enabledName="emailEnabled" enabled={s["notifications.email_enabled"] === "1"} provider="Resend" status={providers.email.status}/><ChannelCard label="SMS" enabledName="smsEnabled" enabled={s["notifications.sms_enabled"] === "1"} provider="Telnyx" status={providers.sms.status}/></div></section>
+      <section className="rounded-xl border border-stone-200 bg-white p-6"><h2 className="text-xl font-bold text-[#9d302f]">Customer reminders</h2><p className="mt-1 text-sm text-stone-600">Each reminder is stored as minutes before the appointment for the scheduler, while you can edit it in the unit that is easiest to read.</p><div className="mt-5 grid gap-4 md:grid-cols-2"><ReminderCard prefix="first" title="First Reminder" enabled={s["notifications.first_reminder_enabled"] === "1"} minutes={Number(s["notifications.first_reminder_offset_minutes"])}/><ReminderCard prefix="second" title="Final Reminder" enabled={s["notifications.second_reminder_enabled"] === "1"} minutes={Number(s["notifications.second_reminder_offset_minutes"])}/></div></section>
+      <section className="rounded-xl border border-stone-200 bg-white p-6"><h2 className="text-xl font-bold text-[#9d302f]">Provider configuration</h2><div className="mt-5 grid gap-6 md:grid-cols-2"><div className="grid gap-4"><label className="ta-field">Email provider<select name="emailProvider" defaultValue={s["notifications.email_provider"]}><option value="resend">Resend</option></select></label><Field label="Sender display name" name="emailSenderName" value={s["notifications.email_sender_name"]}/><Field label="Sender email address" name="emailSenderAddress" type="email" value={s["notifications.email_sender_address"] || providers.email.senderAddress || ""}/><Field label="Reply-to address (optional)" name="emailReplyTo" type="email" value={s["notifications.email_reply_to"]}/></div><div className="grid gap-4"><label className="ta-field">SMS provider<select name="smsProvider" defaultValue={s["notifications.sms_provider"]}><option value="telnyx">Telnyx</option></select></label><Field label="Sender / from phone number" name="smsSenderNumber" type="tel" value={s["notifications.sms_sender_number"] || providers.sms.senderNumber || ""}/><Field label="Messaging profile ID (optional)" name="smsMessagingProfileId" value={s["notifications.sms_messaging_profile_id"]}/><p className="text-sm text-stone-600">Webhook signature validation: <strong>{providers.sms.inboundWebhook.signatureValidationConfigured ? "Configured" : "Not Configured"}</strong></p></div></div><button className="mt-6 ta-button ta-button-primary">Save notification settings</button></section>
     </Form>
+    <TestNotification admin={admin} emailReady={providers.email.configured} smsReady={providers.sms.configured} emailStatus={providers.email.status} smsStatus={providers.sms.status}/>
   </div></PageShell>;
 }
 
-function ProviderCard({ title, status, children }: { title: string; status: string; children: React.ReactNode }) { const configured = status === "Configured"; return <section className="rounded-xl border border-stone-200 p-5"><div className="flex items-center justify-between gap-3"><h2 className="text-xl font-bold">{title}</h2><span className={configured ? "rounded-full bg-emerald-100 px-3 py-1 text-sm font-bold text-emerald-900" : "rounded-full bg-amber-100 px-3 py-1 text-sm font-bold text-amber-900"}>{status}</span></div><div className="mt-5 grid gap-4">{children}</div></section>; }
-function MissingSecret({ status, provider, secret }: { status: string; provider: string; secret: string }) { return status === "Missing API Key" ? <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-950">{provider} is not configured. Set the <code>{secret}</code> Cloudflare secret to enable delivery: <code>npx wrangler secret put {secret}</code></p> : null; }
+function TestNotification({ admin, emailReady, smsReady, emailStatus, smsStatus }: { admin: { email: string; phone: string }; emailReady: boolean; smsReady: boolean; emailStatus: string; smsStatus: string }) { const [channel, setChannel] = useState<"email" | "sms">("email"); const unavailable = channel === "email" ? emailStatus === "Missing API Key" ? "RESEND_API_KEY is not configured" : emailStatus : smsStatus === "Missing API Key" ? "TELNYX_API_KEY is not configured" : smsStatus; return <section className="mt-6 rounded-xl border border-stone-200 bg-white p-6"><h2 className="text-xl font-bold text-[#9d302f]">Test Notification</h2><p className="mt-1 text-sm text-stone-600">Send a real test through the configured provider. Provider credentials are never accepted from this form.</p><Form method="post" className="mt-5 grid gap-4 sm:max-w-xl"><input type="hidden" name="intent" value="send-test"/><label className="ta-field">Channel<select name="testChannel" value={channel} onChange={event => setChannel(event.target.value as "email" | "sms")}><option value="email">Email</option><option value="sms">SMS</option></select></label><Field key={channel} label={channel === "email" ? "Destination email" : "Destination phone number"} name="testDestination" type={channel === "email" ? "email" : "tel"} value={channel === "email" ? admin.email : admin.phone}/>{channel === "email" ? <Field label="Test subject (optional)" name="testSubject" value="Trice Auctions Notification Test"/> : null}<button disabled={channel === "email" ? !emailReady : !smsReady} className="ta-button ta-button-primary disabled:cursor-not-allowed disabled:opacity-50">{channel === "email" ? "Send Test Email" : "Send Test SMS"}</button>{channel === "email" && !emailReady ? <p className="text-sm text-amber-800">Email testing unavailable: {unavailable}.</p> : null}{channel === "sms" && !smsReady ? <p className="text-sm text-amber-800">SMS testing unavailable: {unavailable}.</p> : null}</Form></section>; }
+function ChannelCard({ label, enabledName, enabled, provider, status }: { label: string; enabledName: string; enabled: boolean; provider: string; status: string }) { return <div className="rounded-lg bg-stone-50 p-4"><label className="flex gap-3 font-semibold"><input name={enabledName} type="checkbox" defaultChecked={enabled}/>{label} enabled globally</label><p className="mt-3 text-sm text-stone-600">Provider: <strong>{provider}</strong> · Status: <strong>{status}</strong></p></div>; }
+function ReminderCard({ prefix, title, enabled, minutes }: { prefix: "first" | "second"; title: string; enabled: boolean; minutes: number }) { const initial = reminderParts(minutes); const [amount, setAmount] = useState(initial.amount); const [unit, setUnit] = useState(initial.unit); return <div className="rounded-lg bg-stone-50 p-4"><label className="flex gap-3 font-semibold"><input name={`${prefix}Enabled`} type="checkbox" defaultChecked={enabled}/>{title} enabled</label><div className="mt-4 grid grid-cols-[1fr_1fr] gap-3"><label className="ta-field">Offset amount<input name={`${prefix}OffsetAmount`} type="number" min="0" value={amount} onChange={event => setAmount(Number(event.target.value) || 0)}/></label><label className="ta-field">Unit<select name={`${prefix}OffsetUnit`} value={unit} onChange={event => setUnit(event.target.value as "minutes" | "hours" | "days")}><option value="minutes">minutes</option><option value="hours">hours</option><option value="days">days</option></select></label></div><p className="mt-3 text-sm text-stone-600">Send {amount} {unit} before the appointment</p></div>; }
 function Field({ label, name, value, type = "text" }: { label: string; name: string; value: string; type?: string }) { return <label className="ta-field">{label}<input name={name} type={type} defaultValue={value} /></label>; }
-function Reminder({ name, label, enabled, offset }: { name: "first" | "second"; label: string; enabled: boolean; offset: string }) { return <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_12rem]"><label className="flex gap-3"><input name={`${name}Enabled`} type="checkbox" defaultChecked={enabled}/><span>{label} enabled</span></label><label className="text-sm font-semibold">Minutes before appointment<input name={`${name}Offset`} type="number" min="0" defaultValue={offset} className="mt-1 block w-full rounded border p-2 font-normal"/></label></div>; }
