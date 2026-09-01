@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type RefObject } from "react";
 
 type TurnstileOptions = {
   sitekey: string;
@@ -28,16 +28,18 @@ type PublicFormProtectionProps = {
   siteKey: string;
   formStartToken: string;
   onTokenChange: (hasToken: boolean) => void;
+  responseInputRef: RefObject<HTMLInputElement | null>;
 };
 
 function reportTurnstileToken(token: string, form: HTMLFormElement | null) {
-  const submittedToken = form ? String(new FormData(form).get("cf-turnstile-response") ?? "") : "";
+  const formData = form ? new FormData(form) : null;
+  const submittedToken = String(formData?.get("cf-turnstile-response") ?? "");
   console.info("turnstile-client-token", {
     hasToken: Boolean(token),
     tokenLength: token.length,
     formDataHasToken: Boolean(submittedToken),
   });
-  return Boolean(submittedToken);
+  return Boolean(formData?.has("cf-turnstile-response") && submittedToken);
 }
 
 export function reportTurnstileFormSubmission(form: HTMLFormElement) {
@@ -45,20 +47,22 @@ export function reportTurnstileFormSubmission(form: HTMLFormElement) {
   return reportTurnstileToken(token, form);
 }
 
-export function PublicFormProtection({ siteKey, formStartToken, onTokenChange }: PublicFormProtectionProps) {
+export function PublicFormProtection({ siteKey, formStartToken, onTokenChange, responseInputRef }: PublicFormProtectionProps) {
   const widget = useRef<HTMLDivElement>(null);
   const widgetId = useRef<string | undefined>(undefined);
-  const responseInput = useRef<HTMLInputElement>(null);
-  const [token, setToken] = useState("");
+  const [hasToken, setHasToken] = useState(false);
   const statusId = useId();
 
   useEffect(() => {
     onTokenChange(false);
-    setToken("");
+    setHasToken(false);
 
     const clearTokenAndReset = () => {
-      if (responseInput.current) responseInput.current.value = "";
-      setToken("");
+      if (responseInputRef.current) {
+        responseInputRef.current.value = "";
+        responseInputRef.current.defaultValue = "";
+      }
+      setHasToken(false);
       onTokenChange(false);
       if (widgetId.current) window.turnstile?.reset(widgetId.current);
     };
@@ -68,11 +72,14 @@ export function PublicFormProtection({ siteKey, formStartToken, onTokenChange }:
       widgetId.current = window.turnstile.render(widget.current, {
         sitekey: siteKey,
         callback: (nextToken) => {
-          // Update the submitted native input before React Router can construct
-          // FormData. React state remains the source of truth after this render.
-          if (responseInput.current) responseInput.current.value = nextToken;
-          const hasSubmittedToken = reportTurnstileToken(nextToken, responseInput.current?.form ?? null);
-          setToken(nextToken);
+          // This exact input is rendered directly by the route's <Form>. Update it
+          // synchronously before React Router can construct its native FormData.
+          if (responseInputRef.current) {
+            responseInputRef.current.value = nextToken;
+            responseInputRef.current.defaultValue = nextToken;
+          }
+          const hasSubmittedToken = reportTurnstileToken(nextToken, responseInputRef.current?.form ?? null);
+          setHasToken(Boolean(nextToken));
           onTokenChange(Boolean(nextToken) && hasSubmittedToken);
         },
         "expired-callback": clearTokenAndReset,
@@ -107,9 +114,8 @@ export function PublicFormProtection({ siteKey, formStartToken, onTokenChange }:
 
   return <>
     <input type="hidden" name="formStartToken" value={formStartToken}/>
-    <input ref={responseInput} type="hidden" name="cf-turnstile-response" value={token}/>
     <div aria-hidden="true" className="absolute h-px w-px overflow-hidden whitespace-nowrap [clip:rect(0,0,0,0)]"><label>Company website<input tabIndex={-1} autoComplete="off" name="companyWebsite"/></label></div>
-    <div ref={widget} className="cf-turnstile" aria-describedby={token ? undefined : statusId}/>
-    {!token && <p id={statusId} role="status" className="text-sm text-stone-600">Complete the security check before submitting.</p>}
+    <div ref={widget} className="cf-turnstile" aria-describedby={hasToken ? undefined : statusId}/>
+    {!hasToken && <p id={statusId} role="status" className="text-sm text-stone-600">Complete the security check before submitting.</p>}
   </>;
 }

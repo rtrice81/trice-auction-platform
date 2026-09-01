@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { data, Form, redirect } from "react-router";
 import type { Route } from "./+types/register";
 import { getAuth, syncApplicationUser } from "../services/auth.server";
@@ -24,7 +24,8 @@ export async function action({ request }: Route.ActionArgs) {
 }
 export default function Register({ loaderData, actionData }: Route.ComponentProps) {
   const [turnstileVerified, setTurnstileVerified] = useState(false);
+  const responseInputRef = useRef<HTMLInputElement>(null);
   const handleTurnstileChange = useCallback((hasToken: boolean) => setTurnstileVerified(hasToken), []);
 
-  return <main className="mx-auto max-w-md p-8"><h1 className="text-3xl font-bold">Create your account</h1>{actionData?.error && <p role="alert">{actionData.error}</p>}<Form method="post" className="mt-6 space-y-4" onSubmit={(event) => { if (!turnstileVerified || !reportTurnstileFormSubmission(event.currentTarget)) event.preventDefault(); }}><input required name="name" placeholder="Name" className="w-full border p-2"/><input required type="email" name="email" placeholder="Email" className="w-full border p-2"/><input required minLength={8} type="password" name="password" placeholder="Password" className="w-full border p-2"/><PublicFormProtection siteKey={loaderData.turnstileSiteKey} formStartToken={loaderData.formStartToken} onTokenChange={handleTurnstileChange}/><button disabled={!turnstileVerified} className="bg-stone-900 px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-60">Register</button></Form></main>;
+  return <main className="mx-auto max-w-md p-8"><h1 className="text-3xl font-bold">Create your account</h1>{actionData?.error && <p role="alert">{actionData.error}</p>}<Form method="post" className="mt-6 space-y-4" onSubmit={(event) => { if (!turnstileVerified || !reportTurnstileFormSubmission(event.currentTarget)) event.preventDefault(); }}><input required name="name" placeholder="Name" className="w-full border p-2"/><input required type="email" name="email" placeholder="Email" className="w-full border p-2"/><input required minLength={8} type="password" name="password" placeholder="Password" className="w-full border p-2"/><input ref={responseInputRef} type="hidden" name="cf-turnstile-response" defaultValue=""/><PublicFormProtection siteKey={loaderData.turnstileSiteKey} formStartToken={loaderData.formStartToken} onTokenChange={handleTurnstileChange} responseInputRef={responseInputRef}/><button disabled={!turnstileVerified} className="bg-stone-900 px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-60">Register</button></Form></main>;
 }
