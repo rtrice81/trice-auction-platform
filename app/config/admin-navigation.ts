@@ -25,15 +25,12 @@ export type VisibleAdminNavigation = Array<{
 // Add future modules here; the shared admin layout will render them automatically.
 export const ADMIN_NAVIGATION: readonly AdminNavigationModule[] = [
   {
-    label: "Drop-Offs",
+    label: "Consignments",
     displayOrder: 10,
     items: [
-      { label: "Schedule", path: "/admin/schedule", module: "Drop-Offs", group: "Drop-Offs", allowedRoles: ["admin"], requiredPermission: "admin:access", displayOrder: 10 },
-      { label: "Booking Events", path: "/admin/booking-events", module: "Drop-Offs", group: "Drop-Offs", allowedRoles: ["admin"], requiredPermission: "admin:access", displayOrder: 15 },
-      { label: "New Drop-Off Date", path: "/admin/schedule/new", module: "Drop-Offs", group: "Drop-Offs", allowedRoles: ["admin"], requiredPermission: "admin:access", displayOrder: 20 },
-      { label: "Appointments", path: "/admin/appointments", module: "Drop-Offs", group: "Drop-Offs", allowedRoles: ["admin"], requiredPermission: "appointment:manage-all", displayOrder: 30 },
-      { label: "New Appointment", path: "/admin/appointments/new", module: "Drop-Offs", group: "Drop-Offs", allowedRoles: ["admin"], requiredPermission: "appointment:manage-all", displayOrder: 40 },
-      { label: "Capacity Settings", path: "/admin/capacity", module: "Drop-Offs", group: "Drop-Offs", allowedRoles: ["admin"], requiredPermission: "capacity:manage", displayOrder: 50 },
+      { label: "Booking Events", path: "/admin/booking-events", module: "Consignments", group: "Consignments", allowedRoles: ["admin"], requiredPermission: "admin:access", displayOrder: 10 },
+      { label: "New Drop-off Date", path: "/admin/schedule/new", module: "Consignments", group: "Consignments", allowedRoles: ["admin"], requiredPermission: "admin:access", displayOrder: 20 },
+      { label: "Schedule", path: "/admin/schedule", module: "Consignments", group: "Consignments", allowedRoles: ["admin"], requiredPermission: "admin:access", displayOrder: 30 },
     ],
   },
   {
