@@ -1,4 +1,6 @@
-export const OPERATIONAL_TIMEZONE = "America/New_York";
+import { CUSTOMER_BOOKING_TIMEZONE } from "./booking-event-visibility";
+
+export const OPERATIONAL_TIMEZONE = CUSTOMER_BOOKING_TIMEZONE;
 
 type TimeStorageVersion = number | null | undefined;
 

@@ -3,6 +3,7 @@ export type CustomerAvailability = "Available" | "Limited Availability" | "Nearl
 
 export type CustomerDropoffDate = { eventId: number; eventDate: string; eventName: string | null; isOpen: boolean; bookable: boolean; availability: CustomerAvailability };
 import { bookingEventInstant } from "../lib/booking-event-time";
+import { calendarDateInTimezone, customerBookingEventSignupStatus, isCustomerBookingEventVisible } from "../lib/booking-event-visibility";
 export type CustomerBookingEvent = { id: number; name: string; description: string | null; opensAt: string; closesAt: string | null; timezone: string; timeStorageVersion: number; active: boolean; status: BookingEventStatus; dates: CustomerDropoffDate[] };
 type BookingEventRow = { bookingEventId: number; name: string; description: string | null; opensAt: string; closesAt: string | null; timezone: string; timeStorageVersion: number; active: number; eventId: number; eventDate: string; eventName: string | null; eventOpen: number };
 
@@ -17,8 +18,13 @@ export async function getBookableBookingEventForDate(db: D1Database, date: strin
 }
 
 export async function getCustomerBookingEvents(db: D1Database, now = new Date()): Promise<CustomerBookingEvent[]> {
-  const { results } = await db.prepare(`SELECT event.id AS bookingEventId, event.name, event.description, event.opens_at AS opensAt, event.closes_at AS closesAt, event.timezone, event.timestamp_storage_version AS timeStorageVersion, event.active, day.id AS eventId, day.dropoff_date AS eventDate, day.event_name AS eventName, day.is_open AS eventOpen FROM booking_events event JOIN booking_event_dropoff_dates link ON link.booking_event_id = event.id JOIN dropoff_days day ON day.id = link.dropoff_day_id WHERE event.active = 1 AND day.visibility = 'public' AND day.dropoff_date >= ? ORDER BY event.opens_at ASC, day.dropoff_date ASC`).bind(today(now)).all<BookingEventRow>();
-  return groupCustomerBookingEventRows(db, results, now);
+  const { results } = await db.prepare(`SELECT event.id AS bookingEventId, event.name, event.description, event.opens_at AS opensAt, event.closes_at AS closesAt, event.timezone, event.timestamp_storage_version AS timeStorageVersion, event.active, day.id AS eventId, day.dropoff_date AS eventDate, day.event_name AS eventName, day.is_open AS eventOpen FROM booking_events event JOIN booking_event_dropoff_dates link ON link.booking_event_id = event.id JOIN dropoff_days day ON day.id = link.dropoff_day_id WHERE event.active = 1 AND day.visibility = 'public' ORDER BY event.opens_at ASC, day.dropoff_date ASC`).all<BookingEventRow>();
+  const visibleRows = results.filter((row) => {
+    const opensAt = bookingEventInstant(row.opensAt, row.timezone, row.timeStorageVersion);
+    const closesAt = row.closesAt ? bookingEventInstant(row.closesAt, row.timezone, row.timeStorageVersion) : null;
+    return Boolean(opensAt && (!row.closesAt || closesAt) && isCustomerBookingEventVisible({ opensAt, closesAt }, now));
+  });
+  return groupCustomerBookingEventRows(db, visibleRows, now);
 }
 
 export async function getCustomerDropoffDateById(db: D1Database, eventId: number, now = new Date()) {
@@ -45,7 +51,7 @@ async function groupCustomerBookingEventRows(db: D1Database, rows: BookingEventR
   return [...grouped.values()].map((bookingEvent) => bookingEvent.status === "open" && bookingEvent.dates.length > 0 && bookingEvent.dates.every((date) => date.availability === "Full") ? { ...bookingEvent, status: "full" } : bookingEvent);
 }
 
-function getBookingEventStatus(row: Pick<BookingEventRow, "opensAt" | "closesAt" | "timezone" | "timeStorageVersion" | "active">, now: Date): BookingEventStatus { const opensAt=bookingEventInstant(row.opensAt,row.timezone,row.timeStorageVersion), closesAt=row.closesAt?bookingEventInstant(row.closesAt,row.timezone,row.timeStorageVersion):null; if (row.active !== 1 || !opensAt || (row.closesAt && !closesAt)) return "inactive"; if (now.getTime() < opensAt.getTime()) return "upcoming"; if (closesAt && now.getTime() >= closesAt.getTime()) return "closed"; return "open"; }
+function getBookingEventStatus(row: Pick<BookingEventRow, "opensAt" | "closesAt" | "timezone" | "timeStorageVersion" | "active">, now: Date): BookingEventStatus { const opensAt=bookingEventInstant(row.opensAt,row.timezone,row.timeStorageVersion), closesAt=row.closesAt?bookingEventInstant(row.closesAt,row.timezone,row.timeStorageVersion):null; if (!opensAt || (row.closesAt && !closesAt)) return "inactive"; return customerBookingEventSignupStatus({ opensAt, closesAt, active: row.active === 1 }, now); }
 async function getDateAvailability(db: D1Database, row: BookingEventRow, now: Date): Promise<Pick<CustomerDropoffDate, "bookable" | "availability">> {
   const status = getBookingEventStatus(row, now);
   if (status === "upcoming") return { bookable: false, availability: "Signup Not Open Yet" };
@@ -66,4 +72,4 @@ async function getEventCapacitySnapshot(db: D1Database, eventId: number, eventDa
   const usedByArea = new Map((areaUsage.results as Array<{ itemAreaId: number; usedPoints: number }>).map((usage) => [usage.itemAreaId, usage.usedPoints])); const areas = areasResult.results as Array<{ id: number; capacityPoints: number; overflowPoints: number }>; const types = typesResult.results as Array<{ capacityPoints: number }>; const remaining = areas.map((area) => Math.max(0, area.capacityPoints + area.overflowPoints - (usedByArea.get(area.id) ?? 0)));
   const bookable = Number.isFinite(totalCapacity) && types.some((type) => type.capacityPoints <= remainingDaily && remaining.some((capacity) => type.capacityPoints <= capacity)); const dailyRatio = totalCapacity > 0 ? remainingDaily / totalCapacity : 0; const bestAreaRatio = Math.max(0, ...areas.map((area, index) => area.capacityPoints + area.overflowPoints > 0 ? remaining[index] / (area.capacityPoints + area.overflowPoints) : 0)); return { bookable, remainingRatio: Math.min(dailyRatio, bestAreaRatio) };
 }
-function today(now: Date) { return now.toISOString().slice(0, 10); }
+function today(now: Date) { return calendarDateInTimezone(now); }
