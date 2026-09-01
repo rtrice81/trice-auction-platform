@@ -30,9 +30,25 @@ type PublicFormProtectionProps = {
   onTokenChange: (hasToken: boolean) => void;
 };
 
+function reportTurnstileToken(token: string, form: HTMLFormElement | null) {
+  const submittedToken = form ? String(new FormData(form).get("cf-turnstile-response") ?? "") : "";
+  console.info("turnstile-client-token", {
+    hasToken: Boolean(token),
+    tokenLength: token.length,
+    formDataHasToken: Boolean(submittedToken),
+  });
+  return Boolean(submittedToken);
+}
+
+export function reportTurnstileFormSubmission(form: HTMLFormElement) {
+  const token = String(new FormData(form).get("cf-turnstile-response") ?? "");
+  return reportTurnstileToken(token, form);
+}
+
 export function PublicFormProtection({ siteKey, formStartToken, onTokenChange }: PublicFormProtectionProps) {
   const widget = useRef<HTMLDivElement>(null);
   const widgetId = useRef<string | undefined>(undefined);
+  const responseInput = useRef<HTMLInputElement>(null);
   const [token, setToken] = useState("");
   const statusId = useId();
 
@@ -41,6 +57,7 @@ export function PublicFormProtection({ siteKey, formStartToken, onTokenChange }:
     setToken("");
 
     const clearTokenAndReset = () => {
+      if (responseInput.current) responseInput.current.value = "";
       setToken("");
       onTokenChange(false);
       if (widgetId.current) window.turnstile?.reset(widgetId.current);
@@ -51,8 +68,12 @@ export function PublicFormProtection({ siteKey, formStartToken, onTokenChange }:
       widgetId.current = window.turnstile.render(widget.current, {
         sitekey: siteKey,
         callback: (nextToken) => {
+          // Update the submitted native input before React Router can construct
+          // FormData. React state remains the source of truth after this render.
+          if (responseInput.current) responseInput.current.value = nextToken;
+          const hasSubmittedToken = reportTurnstileToken(nextToken, responseInput.current?.form ?? null);
           setToken(nextToken);
-          onTokenChange(true);
+          onTokenChange(Boolean(nextToken) && hasSubmittedToken);
         },
         "expired-callback": clearTokenAndReset,
         "error-callback": clearTokenAndReset,
@@ -86,7 +107,7 @@ export function PublicFormProtection({ siteKey, formStartToken, onTokenChange }:
 
   return <>
     <input type="hidden" name="formStartToken" value={formStartToken}/>
-    <input type="hidden" name="cf-turnstile-response" value={token}/>
+    <input ref={responseInput} type="hidden" name="cf-turnstile-response" value={token}/>
     <div aria-hidden="true" className="absolute h-px w-px overflow-hidden whitespace-nowrap [clip:rect(0,0,0,0)]"><label>Company website<input tabIndex={-1} autoComplete="off" name="companyWebsite"/></label></div>
     <div ref={widget} className="cf-turnstile" aria-describedby={token ? undefined : statusId}/>
     {!token && <p id={statusId} role="status" className="text-sm text-stone-600">Complete the security check before submitting.</p>}
