@@ -4,7 +4,17 @@ This milestone sends only appointment and operational messages. It does not add 
 
 ## Cloudflare configuration
 
-Set these as Worker secrets (never D1 values or browser variables): `RESEND_API_KEY`, `TELNYX_API_KEY`, and `TELNYX_WEBHOOK_PUBLIC_KEY`. Configure `RESEND_FROM_EMAIL` (for example `Trice Auctions <appointments@notify.bidtrice.com>`), `TELNYX_FROM_NUMBER` (a verified toll-free or registered 10DLC business number), and `APP_BASE_URL` as Worker environment variables/secrets.
+Provider selections and non-secret delivery identity settings are managed in **Admin → Notifications** and stored in D1. API credentials are Worker secrets only; they are never stored in D1 or returned by the admin loader.
+
+Set the required Worker secrets (without placing their values in source control):
+
+```sh
+npx wrangler secret put RESEND_API_KEY
+npx wrangler secret put TELNYX_API_KEY
+npx wrangler secret put TELNYX_WEBHOOK_PUBLIC_KEY
+```
+
+`TELNYX_WEBHOOK_PUBLIC_KEY` is required by the inbound SMS webhook signature verification. The admin page can show whether it is configured, but never its value. Legacy environment values `RESEND_FROM_EMAIL` and `TELNYX_FROM_NUMBER` are supported as fallbacks; set the sender address and sender number in Admin → Notifications for the managed configuration.
 
 The Worker cron (`*/5 * * * *`) processes the D1 `notification_jobs` outbox. Jobs use unique idempotency keys and are atomically claimed, so duplicate cron invocations cannot send a claimed job twice. Failed jobs retry up to three attempts.
 
