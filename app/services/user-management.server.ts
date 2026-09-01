@@ -67,7 +67,7 @@ export async function updateManagedUser(
     email: string;
     phone: string;
     role: string;
-    active: boolean;
+    active?: boolean;
   },
 ): Promise<UserManagementResult> {
   if (!isPositiveInteger(input.actorUserId) || !isPositiveInteger(input.targetUserId)) return failure("Choose a valid user.");
@@ -80,11 +80,12 @@ export async function updateManagedUser(
   if (!/^\S+@\S+\.\S+$/.test(email)) return failure("Enter a valid email address.");
   const target = await getManagedUser(db, input.targetUserId);
   if (!target) return failure("User was not found.");
+  const active = input.active ?? target.active;
   if (!isRole(input.role)) return failure("Choose a supported role.");
   if (input.actorUserId === input.targetUserId && input.role !== target.role) {
     return failure("You cannot change your own role through user management.");
   }
-  if (target.role === "admin" && target.active && (input.role !== "admin" || !input.active)) {
+  if (target.role === "admin" && target.active && (input.role !== "admin" || !active)) {
     const activeAdmins = await db.prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'admin' AND active = 1").first<{ count: number }>();
     if ((activeAdmins?.count ?? 0) <= 1) return failure("At least one active admin account must remain.");
   }
@@ -96,7 +97,7 @@ export async function updateManagedUser(
   const statements: D1PreparedStatement[] = [
     db.prepare(
       `UPDATE users SET first_name = ?, last_name = ?, email = ?, phone = ?, role = ?, active = ? WHERE id = ?`,
-    ).bind(firstName, lastName, email, phone || null, input.role, input.active ? 1 : 0, target.id),
+    ).bind(firstName, lastName, email, phone || null, input.role, active ? 1 : 0, target.id),
   ];
 
   if (target.authUserId) {
