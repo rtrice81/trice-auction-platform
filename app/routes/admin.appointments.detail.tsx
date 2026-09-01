@@ -5,6 +5,7 @@ import { Button, Notice, PageCard, PageIntro, PageShell } from "../components/de
 import { ConfirmationForm } from "../components/confirmation-form";
 import { requireRole } from "../services/auth.server";
 import { getAppointmentOverrideHistory } from "../services/appointment-override-audit.server";
+import { cancelScheduledAppointment } from "../services/notification.server";
 
 const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
 
@@ -48,7 +49,8 @@ export async function action({ request, params }: Route.ActionArgs) {
   const form = await request.formData();
   if (form.get("intent") !== "cancel") return data({ error: "Invalid action." }, { status: 400 });
   if (appointment.status !== "scheduled") return data({ error: "Only scheduled appointments can be cancelled." }, { status: 400 });
-  await env.trice_auction_db.prepare("UPDATE appointments SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'scheduled'").bind(appointmentId).run();
+  const result = await cancelScheduledAppointment(env.trice_auction_db, appointmentId, env as never);
+  if (!result.cancelled) return data({ error: "Only scheduled appointments can be cancelled." }, { status: 400 });
   return redirect(`/admin/appointments/${appointmentId}?cancelled=1`);
 }
 

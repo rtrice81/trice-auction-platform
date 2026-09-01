@@ -5,3 +5,10 @@ BETTER_AUTH_URL=http://127.0.0.1:5173
 # Worker secrets before deploying to production.
 TURNSTILE_SITE_KEY=1x00000000000000000000AA
 TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
+# Transactional notifications (set with `wrangler secret put` in production).
+RESEND_API_KEY=
+RESEND_FROM_EMAIL=Trice Auctions <appointments@notify.bidtrice.com>
+TELNYX_API_KEY=
+TELNYX_FROM_NUMBER=+15555550123
+TELNYX_WEBHOOK_PUBLIC_KEY=
+APP_BASE_URL=http://127.0.0.1:5173

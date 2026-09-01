@@ -3,6 +3,7 @@ import { data, Form, Link } from "react-router";
 import type { Route } from "./+types/my-appointments.detail";
 import { requireOwnership, requireUser } from "../services/auth.server";
 import { createBooking, getBookingOptions } from "../services/booking.server";
+import { cancelScheduledAppointment } from "../services/notification.server";
 import { Button, FormField, Notice, PageCard, PageIntro, PageShell } from "../components/design-system";
 
 const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
@@ -48,7 +49,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   const user = await requireUser(request, env.trice_auction_db, runtime);
   const appointment = await env.trice_auction_db
     .prepare(
-      `SELECT a.user_id AS userId, day.visibility AS visibility
+      `SELECT a.user_id AS userId, a.status AS status, day.visibility AS visibility
        FROM appointments AS a
        LEFT JOIN dropoff_days AS day ON day.dropoff_date = a.appointment_date
        WHERE a.id = ?`,
@@ -61,6 +62,10 @@ export async function action({ request, params }: Route.ActionArgs) {
   if (appointment.visibility === "private") return data({ error: "Private appointments can only be changed by an administrator." }, { status: 403 });
 
   const form = await request.formData();
+  if (form.get("intent") === "cancel") {
+    const result = await cancelScheduledAppointment(env.trice_auction_db, Number(params.id), env as never);
+    return data(result.cancelled ? { ok: true as const, message: "Your appointment has been cancelled." } : { error: "This appointment is already cancelled or no longer scheduled." }, { status: result.cancelled ? 200 : 400 });
+  }
   const allocations = Array.from(form.entries())
     .filter(([key]) => key.startsWith("allocation-"))
     .map(([key, value]) => ({ itemAreaId: Number(key.slice(11)), percentage: Number(value) }));
@@ -81,7 +86,7 @@ export default function Detail({ loaderData, actionData }: Route.ComponentProps)
   const { appointment, allocations, options } = loaderData;
   return (
     <PageShell><div className="max-w-3xl"><Link to="/my-appointments" className="text-sm font-bold text-[#9d302f]">← My Appointments</Link><PageIntro eyebrow="Customer portal" title="Edit appointment">Update your scheduled drop-off details. Availability is confirmed when you save.</PageIntro>
-      {actionData && "error" in actionData ? <Notice variant="error">{actionData.error}</Notice> : null}{actionData && "errors" in actionData ? <Notice variant="error">{actionData.errors.join(" ")}</Notice> : null}
+      {actionData && "error" in actionData ? <Notice variant="error">{actionData.error}</Notice> : null}{actionData && "errors" in actionData ? <Notice variant="error">{actionData.errors.join(" ")}</Notice> : null}{actionData && "message" in actionData ? <Notice variant="success">{actionData.message}</Notice> : null}
       <PageCard title={appointment.visibility === "private" ? (appointment.eventName || "Private appointment") : "Appointment details"}>{appointment.visibility === "private" ? <div className="grid gap-2 text-sm text-[#555960]"><p>{appointment.appointmentDate} · {appointment.appointmentTime || "Time TBD"} · {appointment.status}</p><p>{options.dropoffTypes.find((type) => type.id === appointment.dropoffTypeId)?.name}</p><p className="whitespace-pre-wrap">{appointment.description || ""}</p></div> : <Form method="post" className="grid gap-5 sm:grid-cols-2">
         <FormField label="Drop-off date"><select name="appointmentDate" defaultValue={appointment.appointmentDate}>
             {options.availableDates.map((date) => <option key={date.date} value={date.date}>{date.date}</option>)}
@@ -95,6 +100,7 @@ export default function Detail({ loaderData, actionData }: Route.ComponentProps)
         <FormField label="Notes" className="sm:col-span-2"><textarea name="description" rows={4} defaultValue={appointment.description ?? ""} /></FormField>
         <div className="sm:col-span-2"><Button disabled={options.availableDates.length === 0}>Save changes</Button></div>
       </Form>}</PageCard>
+      {appointment.visibility !== "private" && appointment.status === "scheduled" ? <Form method="post" className="mt-5"><input type="hidden" name="intent" value="cancel"/><button className="rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-800">Cancel appointment</button></Form> : null}
     </div></PageShell>
   );
 }
