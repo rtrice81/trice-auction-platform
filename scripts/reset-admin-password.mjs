@@ -21,11 +21,14 @@ function quoteSql(value) {
 function executeD1(sql) {
   const command = ["wrangler", "d1", "execute", "trice-auction-db", remote ? "--remote" : "--local", "--json", "--command", sql];
   try {
-    return JSON.parse(execFileSync("npx", command, { encoding: "utf8", stdio: ["inherit", "pipe", "inherit"] }));
+    return JSON.parse(execFileSync("npx", command, { encoding: "utf8", stdio: ["inherit", "pipe", "pipe"] }));
   } catch (error) {
-    console.error(`Could not query the ${remote ? "remote production" : "local"} D1 database; no password was changed.`);
-    process.exitCode = 1;
-    return null;
+    const stdout = error?.stdout?.toString?.() ?? "";
+    const stderr = error?.stderr?.toString?.() ?? "";
+    if (stdout) process.stderr.write(stdout);
+    if (stderr) process.stderr.write(stderr);
+    if (error instanceof Error) process.stderr.write(`${error.message}\n`);
+    throw new Error(`Wrangler could not query the ${remote ? "remote production" : "local"} D1 database; no password was changed.`, { cause: error });
   }
 }
 
@@ -70,7 +73,13 @@ const lookupSql = `
   WHERE LOWER(application_user.email) = LOWER(${quoteSql(email)})
 `;
 
-const matches = resultRows(executeD1(lookupSql));
+let matches;
+try {
+  matches = resultRows(executeD1(lookupSql));
+} catch (error) {
+  console.error(error instanceof Error ? error.message : "D1 lookup failed; no password was changed.");
+  process.exit(1);
+}
 if (matches.length !== 1) {
   console.error(`No application user was found for ${email}; no password was changed.`);
   process.exit(1);
@@ -127,7 +136,13 @@ const updateSql = `
     AND password IS NOT NULL;
   SELECT changes() AS changed;
 `;
-const changes = resultRows(executeD1(updateSql)).find((row) => Object.hasOwn(row, "changed"))?.changed;
+let changes;
+try {
+  changes = resultRows(executeD1(updateSql)).find((row) => Object.hasOwn(row, "changed"))?.changed;
+} catch (error) {
+  console.error(error instanceof Error ? error.message : "D1 update failed; no password was changed.");
+  process.exit(1);
+}
 if (changes !== 1) {
   console.error("Better Auth password credential was not updated; no password reset was completed.");
   process.exit(1);
