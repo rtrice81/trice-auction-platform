@@ -3,18 +3,15 @@ export type CustomerAvailability = "Available" | "Limited Availability" | "Nearl
 
 export type CustomerDropoffDate = { eventId: number; eventDate: string; eventName: string | null; isOpen: boolean; bookable: boolean; availability: CustomerAvailability };
 import { bookingEventInstant } from "../lib/booking-event-time";
-import { calendarDateInTimezone, customerBookingEventSignupStatus, isCustomerBookingEventVisible } from "../lib/booking-event-visibility";
+import { calendarDateInTimezone, customerBookingEventSignupStatus, getEffectivePublicDropoffDateAvailability, isCustomerBookingEventVisible } from "../lib/booking-event-visibility";
 export type CustomerBookingEvent = { id: number; name: string; description: string | null; opensAt: string; closesAt: string | null; timezone: string; timeStorageVersion: number; active: boolean; status: BookingEventStatus; dates: CustomerDropoffDate[] };
 type BookingEventRow = { bookingEventId: number; name: string; description: string | null; opensAt: string; closesAt: string | null; timezone: string; timeStorageVersion: number; active: number; eventId: number; eventDate: string; eventName: string | null; eventOpen: number };
 
 export async function getBookableBookingEventForDate(db: D1Database, date: string, now = new Date()) {
-  const row = await db.prepare(`SELECT event.id, event.name, event.opens_at AS opensAt, event.closes_at AS closesAt, event.timezone, event.timestamp_storage_version AS timeStorageVersion, event.active FROM dropoff_days day LEFT JOIN booking_event_dropoff_dates link ON link.dropoff_day_id = day.id LEFT JOIN booking_events event ON event.id = link.booking_event_id WHERE day.dropoff_date = ? AND day.visibility = 'public'`).bind(date).first<{ id: number | null; name: string | null; opensAt: string | null; closesAt: string | null; timezone: string | null; timeStorageVersion: number | null; active: number | null }>();
-  if (!row?.id || row.active !== 1 || !row.opensAt) return { eligible: false, status: row?.id ? "inactive" as const : "inactive" as const, bookingEvent: row };
-  const opensAt = bookingEventInstant(row.opensAt, row.timezone ?? undefined, row.timeStorageVersion); const closesAt = row.closesAt ? bookingEventInstant(row.closesAt, row.timezone ?? undefined, row.timeStorageVersion) : null;
-  if (!opensAt || (row.closesAt && !closesAt)) return { eligible: false, status: "inactive" as const, bookingEvent: row };
-  if (now.getTime() < opensAt.getTime()) return { eligible: false, status: "upcoming" as const, bookingEvent: row };
-  if (closesAt && now.getTime() >= closesAt.getTime()) return { eligible: false, status: "closed" as const, bookingEvent: row };
-  return { eligible: true, status: "open" as const, bookingEvent: row };
+  const row = await db.prepare(`SELECT event.id, event.name, event.opens_at AS opensAt, event.closes_at AS closesAt, event.timezone, event.timestamp_storage_version AS timeStorageVersion, event.active, day.is_open AS eventOpen FROM dropoff_days day LEFT JOIN booking_event_dropoff_dates link ON link.dropoff_day_id = day.id LEFT JOIN booking_events event ON event.id = link.booking_event_id WHERE day.dropoff_date = ? AND day.visibility = 'public'`).bind(date).first<{ id: number | null; name: string | null; opensAt: string | null; closesAt: string | null; timezone: string | null; timeStorageVersion: number | null; active: number | null; eventOpen: number | null }>();
+  if (!row?.id || !row.opensAt) return { eligible: false, status: "inactive" as const, bookingEvent: row };
+  const availability = getPublicDropoffDateAvailability(row, now);
+  return { eligible: availability.bookable, status: availability.bookingEventStatus, bookingEvent: row };
 }
 
 export async function getCustomerBookingEvents(db: D1Database, now = new Date()): Promise<CustomerBookingEvent[]> {
@@ -53,14 +50,21 @@ async function groupCustomerBookingEventRows(db: D1Database, rows: BookingEventR
 
 function getBookingEventStatus(row: Pick<BookingEventRow, "opensAt" | "closesAt" | "timezone" | "timeStorageVersion" | "active">, now: Date): BookingEventStatus { const opensAt=bookingEventInstant(row.opensAt,row.timezone,row.timeStorageVersion), closesAt=row.closesAt?bookingEventInstant(row.closesAt,row.timezone,row.timeStorageVersion):null; if (!opensAt || (row.closesAt && !closesAt)) return "inactive"; return customerBookingEventSignupStatus({ opensAt, closesAt, active: row.active === 1 }, now); }
 async function getDateAvailability(db: D1Database, row: BookingEventRow, now: Date): Promise<Pick<CustomerDropoffDate, "bookable" | "availability">> {
-  const status = getBookingEventStatus(row, now);
+  const availability = getPublicDropoffDateAvailability(row, now);
+  const status = availability.bookingEventStatus;
   if (status === "upcoming") return { bookable: false, availability: "Signup Not Open Yet" };
-  if (status !== "open" || row.eventOpen !== 1) return { bookable: false, availability: "Closed" };
+  if (!availability.bookable) return { bookable: false, availability: "Closed" };
   const capacity = await getEventCapacitySnapshot(db, row.eventId, row.eventDate);
   if (!capacity.bookable) return { bookable: false, availability: "Full" };
   if (capacity.remainingRatio <= .1) return { bookable: true, availability: "Nearly Full" };
   if (capacity.remainingRatio <= .35) return { bookable: true, availability: "Limited Availability" };
   return { bookable: true, availability: "Available" };
+}
+function getPublicDropoffDateAvailability(row: { opensAt: string | null; closesAt: string | null; timezone: string | null; timeStorageVersion: number | null; active: number | null; eventOpen: number | null }, now: Date) {
+  const opensAt = row.opensAt ? bookingEventInstant(row.opensAt, row.timezone ?? undefined, row.timeStorageVersion) : null;
+  const closesAt = row.closesAt ? bookingEventInstant(row.closesAt, row.timezone ?? undefined, row.timeStorageVersion) : null;
+  if (!opensAt || (row.closesAt && !closesAt)) return { bookingEventStatus: "inactive" as const, bookable: false };
+  return getEffectivePublicDropoffDateAvailability({ opensAt, closesAt, active: row.active === 1, visibility: "public", operationallyEnabled: row.eventOpen === 1 }, now);
 }
 async function getEventCapacitySnapshot(db: D1Database, eventId: number, eventDate: string) {
   const [event, settingsResult, typesResult, areasResult, dailyUsage, areaUsage] = await db.batch([

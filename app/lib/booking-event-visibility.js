@@ -30,3 +30,28 @@ export function customerBookingEventSignupStatus(event, now = new Date()) {
 export function isCustomerBookingEventBookable(event, now = new Date()) {
   return customerBookingEventSignupStatus(event, now) === "open";
 }
+
+/**
+ * The public availability of a child Drop-Off Date is derived from its parent
+ * Booking Event window. `operationallyEnabled` is the child's independent
+ * staff-controlled closure switch; it is not a second signup-window switch.
+ * Capacity and customer-specific eligibility are supplied by the callers that
+ * have the relevant data.
+ *
+ * @param {{ opensAt: Date | null; closesAt?: Date | null; active?: boolean; visibility?: "public" | "private"; operationallyEnabled?: boolean; capacityAvailable?: boolean }} date
+ * @param {Date} [now]
+ */
+export function getEffectivePublicDropoffDateAvailability(date, now = new Date()) {
+  const bookingEventStatus = customerBookingEventSignupStatus(date, now);
+  const isPublic = date.visibility === "public";
+  const operationallyEnabled = date.operationallyEnabled !== false;
+  const capacityAvailable = date.capacityAvailable !== false;
+  return {
+    bookingEventStatus,
+    bookable:
+      isPublic &&
+      bookingEventStatus === "open" &&
+      operationallyEnabled &&
+      capacityAvailable,
+  };
+}
