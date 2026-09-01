@@ -42,6 +42,7 @@ CREATE INDEX idx_notification_jobs_appointment ON notification_jobs(appointment_
 
 INSERT INTO user_notification_preferences (user_id)
 SELECT id FROM users
+WHERE 1 = 1
 ON CONFLICT(user_id) DO NOTHING;
 
 INSERT INTO settings (key, value) VALUES

@@ -8,6 +8,8 @@ Set these as Worker secrets (never D1 values or browser variables): `RESEND_API_
 
 The Worker cron (`*/5 * * * *`) processes the D1 `notification_jobs` outbox. Jobs use unique idempotency keys and are atomically claimed, so duplicate cron invocations cannot send a claimed job twice. Failed jobs retry up to three attempts.
 
+Before running locally or deploying, apply migrations: `npx wrangler d1 migrations apply trice_auction_db --local` for local development, and the same command with `--remote` for the production D1 database.
+
 ## Email domain
 
 Add the sending domain/subdomain in Resend and publish the Resend-provided SPF and DKIM DNS records. Publish a DMARC record for the organizational domain, beginning with a monitoring policy and moving to enforcement after aligned traffic is confirmed. Do not send production mail until Resend reports the domain as verified.
