@@ -8,8 +8,9 @@
 	"compatibility_date": "2026-08-25",
 	"main": "./workers/app.ts",
 	"vars": {
-		"VALUE_FROM_CLOUDFLARE": "Hello from Cloudflare"
-	},
+  "VALUE_FROM_CLOUDFLARE": "Hello from Cloudflare",
+  "TURNSTILE_SITE_KEY": "0x4AAAAAAEjhsjITMtiykQdg"
+},
 	"observability": {
 		"enabled": true
 	},
