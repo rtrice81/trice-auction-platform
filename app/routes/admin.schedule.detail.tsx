@@ -11,6 +11,7 @@ import {
   updateDropoffEvent,
   type ScheduleResult,
 } from "../services/schedule-management.server";
+import { queueEventOperationalNotification } from "../services/notification.server";
 import { ConfirmationForm } from "../components/confirmation-form";
 import { AppointmentSummaryList } from "../components/admin-appointment-summary";
 
@@ -22,14 +23,14 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
-  await requireRole(request, env.trice_auction_db, runtime, "admin");
+  const actor = await requireRole(request, env.trice_auction_db, runtime, "admin");
   const eventId = Number(params.id);
   if (!Number.isInteger(eventId) || eventId < 1) throw new Response("Not Found", { status: 404 });
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "save");
   let result: ScheduleResult;
   if (intent === "save") result = await updateDropoffEvent(env.trice_auction_db, eventId, dropoffEventInputFromForm(form));
-  else if (intent === "open" || intent === "close") result = await setDropoffEventOpen(env.trice_auction_db, eventId, intent === "open");
+  else if (intent === "open" || intent === "close") { result = await setDropoffEventOpen(env.trice_auction_db, eventId, intent === "open"); if (result.ok && intent === "close") { const event = await getDropoffEventById(env.trice_auction_db, eventId); if (event && event.appointments.length) await queueEventOperationalNotification(env.trice_auction_db, { eventName: event.eventName || "Drop-Off Event", date: event.date, appointmentCount: event.appointments.length, actor: actor.name, adminUrl: `/admin/schedule/${eventId}` }); } }
   else if (intent === "delete") result = await deleteDropoffEvent(env.trice_auction_db, eventId);
   else result = { ok: false, errors: ["Unknown event action."] };
 

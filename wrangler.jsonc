@@ -29,6 +29,7 @@
 			"bucket_name": "trice-auction-branding"
 		}
 	]
+	,"triggers": { "crons": ["*/5 * * * *"] }
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

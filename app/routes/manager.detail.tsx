@@ -14,6 +14,7 @@ import {
   type BookingInput,
   validateBooking,
 } from "../services/booking.server";
+import { queueAppointmentCancelled, queueAppointmentRescheduled } from "../services/notification.server";
 
 const runtime = env as unknown as {
   AUTH_SECRET?: string;
@@ -71,12 +72,15 @@ export async function action({ request, params }: AppointmentDetailRequestArgs) 
       .prepare("UPDATE appointments SET status = 'cancelled' WHERE id = ?")
       .bind(appointmentId)
       .run();
+    await queueAppointmentCancelled(env.trice_auction_db, appointmentId);
     return data({ ok: true, message: "Cancelled" });
   }
 
   const input = bookingInputFromForm(form, appointment);
+  const changed = input.appointmentDate !== appointment.date || (input.appointmentTime || null) !== appointment.time || input.dropoffTypeId !== appointment.typeId;
   if (form.get("intent") !== "override") {
     const result = await createBooking(env.trice_auction_db, input);
+    if (result.ok && changed) await queueAppointmentRescheduled(env.trice_auction_db, appointmentId);
     if (result.ok && adminDetailPath) return redirect(`${adminDetailPath}?updated=1`);
     return data(result.ok ? result : { ...result, submitted: input });
   }
@@ -93,6 +97,7 @@ export async function action({ request, params }: AppointmentDetailRequestArgs) 
   const validation = await validateBooking(env.trice_auction_db, input);
   if (validation.ok) {
     const result = await createBooking(env.trice_auction_db, input);
+    if (result.ok && changed) await queueAppointmentRescheduled(env.trice_auction_db, appointmentId);
     if (result.ok && adminDetailPath) return redirect(`${adminDetailPath}?updated=1`);
     return data(result.ok ? result : { ...result, submitted: input });
   }
@@ -129,6 +134,7 @@ export async function action({ request, params }: AppointmentDetailRequestArgs) 
     auditStatement,
     ...getBookingUpdateStatements(env.trice_auction_db, input, validation.dropoffType),
   ]);
+  if (changed) await queueAppointmentRescheduled(env.trice_auction_db, appointmentId);
 
   if (adminDetailPath) return redirect(`${adminDetailPath}?updated=1`);
 

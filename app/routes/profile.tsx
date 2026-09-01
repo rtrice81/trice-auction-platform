@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Route } from "./+types/profile";
 import { getAuth, requireUser } from "../services/auth.server";
 import { getUserProfile, profileInputFromForm, updateUserProfile } from "../services/profile-management.server";
+import { getNotificationPreferences, updateNotificationPreferences } from "../services/notification.server";
 
 const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
 
@@ -16,7 +17,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireUser(request, env.trice_auction_db, runtime);
   const profile = await getUserProfile(env.trice_auction_db, user.id);
   if (!profile) throw new Response("Not Found", { status: 404 });
-  return { profile };
+  const notificationPreferences = await getNotificationPreferences(env.trice_auction_db, user.id);
+  return { profile, notificationPreferences };
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -52,6 +54,16 @@ export async function action({ request }: Route.ActionArgs) {
     if (!response.ok) return data({ ok: false as const, passwordError: "Password could not be changed. Check your current password and choose at least 8 characters." }, { status: 400 });
     return data({ ok: true as const, passwordMessage: "Your password has been changed. Other sessions have been signed out." }, { headers: response.headers });
   }
+  if (intent === "save-notifications") {
+    const profile = await getUserProfile(env.trice_auction_db, user.id);
+    const result = await updateNotificationPreferences(env.trice_auction_db, user.id, {
+      emailEnabled: form.get("appointmentEmailEnabled") === "on",
+      smsEnabled: form.get("appointmentSmsEnabled") === "on",
+      source: "profile",
+      hasValidPhone: Boolean(profile?.phone && profile.phone.replace(/\D/g, "").length >= 10),
+    });
+    return data(result.ok ? { ok: true as const, notificationMessage: "Notification preferences have been saved." } : { ok: false as const, notificationError: result.error }, { status: result.ok ? 200 : 400 });
+  }
 
   return data({ ok: false as const, errors: ["Unknown profile action."] }, { status: 400 });
 }
@@ -62,6 +74,8 @@ export default function Profile({ loaderData, actionData }: Route.ComponentProps
   const secondary = values.addresses.secondary;
   const passwordFormRef = useRef<HTMLFormElement>(null);
   const [passwordConfirmationError, setPasswordConfirmationError] = useState<string | null>(null);
+  const prefs = loaderData.notificationPreferences;
+  const hasPhone = loaderData.profile.phone.replace(/\D/g, "").length >= 10;
 
   useEffect(() => {
     if (actionData && "passwordMessage" in actionData) passwordFormRef.current?.reset();
@@ -76,6 +90,7 @@ export default function Profile({ loaderData, actionData }: Route.ComponentProps
       <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm"><h2 className="text-2xl font-semibold text-stone-950">Addresses</h2><p className="mt-2 text-sm text-stone-600">Add a primary address and, if needed, a secondary address. You can leave either address blank.</p><AddressFields heading="Primary address" prefix="primary" address={primary}/><AddressFields heading="Secondary address" prefix="secondary" address={secondary}/></section>
       <div className="flex flex-wrap gap-3"><button className="rounded-lg bg-stone-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2">Save profile</button><a href="/profile" className="rounded-lg border border-stone-300 px-5 py-2.5 text-sm font-semibold text-stone-800">Cancel</a></div>
     </Form>
+    <section className="mt-10 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm"><h2 className="text-2xl font-semibold text-stone-950">Notification Preferences</h2><p className="mt-2 text-sm text-stone-600">Choose how Trice Auctions sends transactional drop-off appointment updates and reminders.</p>{actionData && "notificationMessage" in actionData ? <Notice variant="success">{actionData.notificationMessage}</Notice> : null}{actionData && "notificationError" in actionData ? <Notice variant="error">{actionData.notificationError}</Notice> : null}<Form method="post" className="mt-5 space-y-5"><input type="hidden" name="intent" value="save-notifications"/><label className="flex gap-3 text-sm"><input name="appointmentEmailEnabled" type="checkbox" defaultChecked={Boolean(prefs?.appointmentEmailEnabled)}/><span><strong>Email appointment notifications</strong><br/><span className="text-stone-600">Send confirmations, changes, cancellations, and reminders to {loaderData.profile.email}.</span></span></label><label className="flex gap-3 text-sm"><input name="appointmentSmsEnabled" type="checkbox" defaultChecked={Boolean(prefs?.appointmentSmsEnabled)} disabled={!hasPhone}/><span><strong>SMS appointment notifications</strong><br/><span className="text-stone-600">{hasPhone ? `Messages go to ${maskPhone(loaderData.profile.phone)}.` : "Add a valid phone number above before SMS can be enabled."} By opting in, you agree that Trice Auctions may send appointment notifications and reminders; message frequency varies, and message/data rates may apply. Reply STOP to opt out or HELP for help.</span></span></label><button className="rounded-lg bg-stone-900 px-5 py-2.5 text-sm font-semibold text-white">Save notification preferences</button></Form></section>
     <section className="mt-10 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm" aria-labelledby="security-heading"><h2 id="security-heading" className="text-2xl font-semibold text-stone-950">Security</h2><p className="mt-2 text-sm text-stone-600">Changing your password signs out your other sessions.</p>{actionData && "passwordMessage" in actionData ? <Notice variant="success">{actionData.passwordMessage}</Notice> : null}{passwordConfirmationError ? <Notice variant="error">{passwordConfirmationError}</Notice> : null}{actionData && "passwordError" in actionData ? <Notice variant="error">{actionData.passwordError}</Notice> : null}<Form ref={passwordFormRef} method="post" className="mt-5 grid gap-5 sm:grid-cols-2" onSubmit={(event) => { const form = new FormData(event.currentTarget); if (form.get("newPassword") !== form.get("confirmNewPassword")) { event.preventDefault(); setPasswordConfirmationError("The new passwords do not match."); } else setPasswordConfirmationError(null); }}><input type="hidden" name="intent" value="change-password"/><Field label="Current password" name="currentPassword" type="password" autoComplete="current-password" required className="sm:col-span-2"/><Field label="New password" name="newPassword" type="password" autoComplete="new-password" minLength={8} required/><Field label="Confirm new password" name="confirmNewPassword" type="password" autoComplete="new-password" minLength={8} required/><div className="sm:col-span-2"><button className="rounded-lg bg-stone-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2">Change password</button></div></Form></section>
   </div></main>;
 }
@@ -91,3 +106,4 @@ function Field({ label, name, value, type = "text", required, className, autoCom
 function Notice({ variant, children }: { variant: "success" | "error"; children: React.ReactNode }) {
   return <p className={`mt-6 rounded-xl border p-4 text-sm ${variant === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-950" : "border-red-200 bg-red-50 text-red-950"}`} role={variant === "success" ? "status" : "alert"}>{children}</p>;
 }
+function maskPhone(phone: string) { const digits = phone.replace(/\D/g, ""); return digits.length < 4 ? "phone number on file" : `••• ••• ${digits.slice(-4)}`; }

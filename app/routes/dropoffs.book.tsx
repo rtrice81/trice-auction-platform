@@ -11,6 +11,7 @@ import { getCustomerDropoffDateById } from "../services/booking-event.server";
 import { CustomerBookingForm } from "../components/customer-booking-form";
 import { formatDropoffDate } from "../components/dropoff-event-card";
 import { AvailabilityBadge } from "../components/availability-badge";
+import { queueAppointmentCreated } from "../services/notification.server";
 import { Notice, PageCard, PageIntro, PageShell } from "../components/design-system";
 import { PendingBookingDialog } from "../components/pending-booking-dialog";
 
@@ -45,6 +46,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   }
   const result = await createBooking(env.trice_auction_db, { userId: user.id, ...pendingBooking });
   if (result.ok) {
+    await queueAppointmentCreated(env.trice_auction_db, result.appointmentId);
     const token = getPendingBookingToken(request); const flashToken = await createBookingSuccessFlash(env.trice_auction_db, user.id, result.appointmentId); await deletePendingBooking(env.trice_auction_db, token);
     const headers = new Headers(); headers.append("Set-Cookie", clearPendingBookingCookie(request)); headers.append("Set-Cookie", bookingSuccessFlashCookie(flashToken, request));
     return redirect("/my-appointments", { headers });
