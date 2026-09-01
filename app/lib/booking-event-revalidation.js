@@ -1,4 +1,6 @@
 export const BOOKING_EVENT_AVAILABILITY_POLL_INTERVAL_MS = 20_000;
+export const BOOKING_EVENT_COUNTDOWN_WINDOW_MS = 30 * 60 * 1_000;
+export const BOOKING_EVENT_COUNTDOWN_URGENT_WINDOW_MS = 10 * 60 * 1_000;
 
 /**
  * Advances the loader-provided server time by monotonic elapsed time. This
@@ -8,6 +10,13 @@ export const BOOKING_EVENT_AVAILABILITY_POLL_INTERVAL_MS = 20_000;
  */
 export function estimateServerNowMs(serverNowMs, elapsedMs) {
   return serverNowMs + Math.max(0, elapsedMs);
+}
+
+/** @param {number} remainingMs */
+export function getBookingEventCountdownPresentation(remainingMs) {
+  if (remainingMs > BOOKING_EVENT_COUNTDOWN_WINDOW_MS) return "scheduled";
+  if (remainingMs <= BOOKING_EVENT_COUNTDOWN_URGENT_WINDOW_MS) return "urgent";
+  return "countdown";
 }
 
 /**

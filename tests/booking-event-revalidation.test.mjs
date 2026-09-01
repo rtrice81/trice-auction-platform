@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BOOKING_EVENT_AVAILABILITY_POLL_INTERVAL_MS, estimateServerNowMs, hasOpenBookingEvent, millisecondsUntilNextBookingEventOpening } from "../app/lib/booking-event-revalidation.js";
+import { BOOKING_EVENT_AVAILABILITY_POLL_INTERVAL_MS, BOOKING_EVENT_COUNTDOWN_URGENT_WINDOW_MS, BOOKING_EVENT_COUNTDOWN_WINDOW_MS, estimateServerNowMs, getBookingEventCountdownPresentation, hasOpenBookingEvent, millisecondsUntilNextBookingEventOpening } from "../app/lib/booking-event-revalidation.js";
 
 const opening = 1_000_000;
 
@@ -27,4 +27,10 @@ test("closed and full child-date state cannot be changed by the client timer", (
 test("the countdown uses loader-provided server time rather than the device wall clock", () => {
   assert.equal(estimateServerNowMs(opening - 5_000, 2_000), opening - 3_000);
   assert.equal(millisecondsUntilNextBookingEventOpening([{ id: 1, status: "upcoming", opensAtMs: opening }], estimateServerNowMs(opening - 5_000, 2_000)), 3_000);
+});
+
+test("the live countdown appears only in the final 30 minutes and is emphasized in the final 10", () => {
+  assert.equal(getBookingEventCountdownPresentation(BOOKING_EVENT_COUNTDOWN_WINDOW_MS + 1), "scheduled");
+  assert.equal(getBookingEventCountdownPresentation(BOOKING_EVENT_COUNTDOWN_WINDOW_MS), "countdown");
+  assert.equal(getBookingEventCountdownPresentation(BOOKING_EVENT_COUNTDOWN_URGENT_WINDOW_MS), "urgent");
 });
