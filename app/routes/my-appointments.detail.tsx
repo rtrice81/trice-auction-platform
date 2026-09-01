@@ -11,10 +11,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const user = await requireUser(request, env.trice_auction_db, runtime);
   const appointment = await env.trice_auction_db
     .prepare(
-      `SELECT id, user_id AS userId, appointment_date AS appointmentDate,
-              appointment_time AS appointmentTime, dropoff_type_id AS dropoffTypeId,
-              description, status, day.event_name AS eventName, day.visibility
-       FROM appointments LEFT JOIN dropoff_days day ON day.dropoff_date = appointments.appointment_date WHERE appointments.id = ?`,
+      `SELECT a.id AS id, a.user_id AS userId, a.appointment_date AS appointmentDate,
+              a.appointment_time AS appointmentTime, a.dropoff_type_id AS dropoffTypeId,
+              a.description AS description, a.status AS status, day.event_name AS eventName, day.visibility AS visibility
+       FROM appointments AS a
+       LEFT JOIN dropoff_days AS day ON day.dropoff_date = a.appointment_date
+       WHERE a.id = ?`,
     )
     .bind(Number(params.id))
     .first<any>();
@@ -45,7 +47,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 export async function action({ request, params }: Route.ActionArgs) {
   const user = await requireUser(request, env.trice_auction_db, runtime);
   const appointment = await env.trice_auction_db
-    .prepare("SELECT appointments.user_id AS userId, day.visibility FROM appointments LEFT JOIN dropoff_days day ON day.dropoff_date = appointments.appointment_date WHERE appointments.id = ?")
+    .prepare(
+      `SELECT a.user_id AS userId, day.visibility AS visibility
+       FROM appointments AS a
+       LEFT JOIN dropoff_days AS day ON day.dropoff_date = a.appointment_date
+       WHERE a.id = ?`,
+    )
     .bind(Number(params.id))
     .first<any>();
   if (!appointment) throw new Response("Not Found", { status: 404 });
