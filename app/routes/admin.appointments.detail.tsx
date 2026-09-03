@@ -20,7 +20,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
             appointments.status, appointments.admin_notes AS adminNotes, appointments.waitlist_reason AS waitlistReason, appointments.waitlisted_at AS waitlistedAt,
             dropoff_types.name AS loadType, dropoff_types.capacity_points AS loadCapacityPoints,
             users.first_name AS firstName, users.last_name AS lastName, users.email,
-            users.phone
+            users.phone, users.consignor_id AS consignorId
      FROM appointments
      JOIN users ON users.id = appointments.user_id
      JOIN dropoff_types ON dropoff_types.id = appointments.dropoff_type_id
@@ -58,7 +58,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 
 export default function AdminAppointmentDetail({ loaderData, actionData }: Route.ComponentProps) {
   const { appointment, allocations, overrideHistory } = loaderData;
-  const customerName = `${appointment.firstName || ""} ${appointment.lastName || ""}`.trim() || appointment.email;
+  const customerName = (`${appointment.firstName || ""} ${appointment.lastName || ""}`.trim() || appointment.email) + (appointment.consignorId ? `\nConsignor #${appointment.consignorId}` : "");
   const totalCapacityPoints = allocations.reduce((total, allocation) => total + allocation.capacityPoints, 0);
   return <PageShell><div className="max-w-5xl"><PageIntro eyebrow="Trice Auctions · Administration" title={`Appointment #${appointment.id}`}><span className="capitalize">{appointment.status.replace("_", " ")}</span> · {appointment.appointmentDate}</PageIntro>
     {loaderData.updated ? <Notice variant="success">Appointment changes saved.</Notice> : null}{loaderData.cancelled ? <Notice variant="success">Appointment cancelled.</Notice> : null}{actionData?.error ? <Notice variant="error">{actionData.error}</Notice> : null}
@@ -69,5 +69,5 @@ export default function AdminAppointmentDetail({ loaderData, actionData }: Route
 
 function DetailList({ values }: { values: Array<[string, string]> }) { return <dl className="grid gap-4 sm:grid-cols-2">{values.map(([label, value]) => <div key={label} className={label === 'What are they bringing?' ? 'sm:col-span-2' : ''}><dt className="text-xs font-bold uppercase tracking-wide text-[#5f6368]">{label}</dt><dd className="mt-1 whitespace-pre-wrap font-medium text-[#25272b]">{value}</dd></div>)}</dl>; }
 function humanize(value: string) { return value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()); }
-type AppointmentDetail = { id: number; appointmentDate: string; description: string | null; status: string; adminNotes: string | null; waitlistReason: string | null; waitlistedAt: string | null; loadType: string; loadCapacityPoints: number; firstName: string | null; lastName: string | null; email: string; phone: string | null; };
+type AppointmentDetail = { id: number; appointmentDate: string; description: string | null; status: string; adminNotes: string | null; waitlistReason: string | null; waitlistedAt: string | null; loadType: string; loadCapacityPoints: number; firstName: string | null; lastName: string | null; email: string; phone: string | null; consignorId: string | null; };
 type AllocationDetail = { name: string; percentage: number; capacityPoints: number; };

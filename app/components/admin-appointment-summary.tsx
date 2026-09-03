@@ -6,6 +6,7 @@ export type AdminAppointmentSummary = {
   loadType: string;
   status: string;
   allocationSummary?: string;
+  consignorId?: string | null;
 };
 
 export function AppointmentStatusBadge({ status }: { status: string }) {
@@ -19,5 +20,5 @@ export function AppointmentSummaryList({ appointments }: { appointments: AdminAp
 }
 
 export function AdminAppointmentCard({ appointment }: { appointment: AdminAppointmentSummary }) {
-  return <article className="rounded-xl border border-[#dfe1e4] bg-white p-5 shadow-sm sm:p-6"><div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><p className="text-lg font-bold tracking-tight text-[#25272b] sm:text-xl">{appointment.customer}</p><p className="mt-2 text-sm leading-6 text-[#5f6368] sm:text-base">{appointment.loadType} · {appointment.allocationSummary || "No area allocations recorded."}</p></div><div className="flex flex-col gap-3 sm:flex-row sm:items-center"><AppointmentStatusBadge status={appointment.status}/><Link to={`/admin/appointments/${appointment.id}`} className="ta-button ta-button-secondary w-full sm:w-auto">View Appointment</Link></div></div></article>;
+  return <article className="rounded-xl border border-[#dfe1e4] bg-white p-5 shadow-sm sm:p-6"><div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><p className="text-lg font-bold tracking-tight text-[#25272b] sm:text-xl">{appointment.customer}</p>{appointment.consignorId ? <p className="mt-1 text-sm text-[#5f6368]">Consignor #{appointment.consignorId}</p> : null}<p className="mt-2 text-sm leading-6 text-[#5f6368] sm:text-base">{appointment.loadType} · {appointment.allocationSummary || "No area allocations recorded."}</p></div><div className="flex flex-col gap-3 sm:flex-row sm:items-center"><AppointmentStatusBadge status={appointment.status}/><Link to={`/admin/appointments/${appointment.id}`} className="ta-button ta-button-secondary w-full sm:w-auto">View Appointment</Link></div></div></article>;
 }

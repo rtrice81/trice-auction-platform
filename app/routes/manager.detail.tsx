@@ -31,6 +31,7 @@ type AppointmentForAction = {
   description: string | null;
   status: string;
   customer: string;
+  consignorId: string | null;
 };
 
 type AppointmentDetailRequestArgs = {
@@ -172,7 +173,7 @@ export function AppointmentManagementDetail({
     <main className="ta-page"><div className="max-w-4xl">
       <Link to={backTo} className="ta-button ta-button-secondary">{backLabel}</Link>
 
-      <header className="mt-6 border-b border-[#d7d9dc] pb-6"><p className="ta-eyebrow">Appointment management</p><h1 className="text-3xl font-bold tracking-tight text-[#25272b]">Edit Appointment #{appointment.id}</h1></header>
+      <header className="mt-6 border-b border-[#d7d9dc] pb-6"><p className="ta-eyebrow">Appointment management</p><h1 className="text-3xl font-bold tracking-tight text-[#25272b]">Edit Appointment #{appointment.id}</h1><p className="mt-2 font-semibold">{appointment.customer}</p>{appointment.consignorId ? <p className="mt-1 text-sm text-[#5f6368]">Consignor #{appointment.consignorId}</p> : null}</header>
 
       {actionData && actionData.ok ? <p role="status">{actionData.message}</p> : null}
       {validationFailure ? (
@@ -334,7 +335,8 @@ async function getAppointment(db: D1Database, appointmentId: number) {
         dropoff_type_id AS typeId,
         description,
         status,
-        COALESCE(NULLIF(TRIM(users.first_name || ' ' || users.last_name), ''), users.email) AS customer
+        COALESCE(NULLIF(TRIM(users.first_name || ' ' || users.last_name), ''), users.email) AS customer,
+        users.consignor_id AS consignorId
       FROM appointments
       JOIN users ON users.id = appointments.user_id
       WHERE appointments.id = ?`,

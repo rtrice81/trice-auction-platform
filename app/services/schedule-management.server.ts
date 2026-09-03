@@ -35,6 +35,7 @@ export type ScheduledAppointment = {
   capacityPoints: number;
   status: string;
   allocationSummary: string;
+  consignorId: string | null;
 };
 
 export type DropoffEvent = {
@@ -318,6 +319,7 @@ async function validateEventInput(db: D1Database, input: DropoffEventInput, isNe
 async function getAppointmentsForDate(db: D1Database, date: string): Promise<ScheduledAppointment[]> {
   const { results } = await db.prepare(
     `SELECT appointment.id, COALESCE(NULLIF(TRIM(user.first_name || ' ' || user.last_name), ''), user.email) AS customer,
+            user.consignor_id AS consignorId,
             type.name AS loadType, type.capacity_points AS capacityPoints, appointment.status,
             COALESCE(GROUP_CONCAT(area.name || ': ' || allocation.allocation_percent || '%', ' · '), '') AS allocationSummary
      FROM appointments appointment
