@@ -36,6 +36,7 @@ export type ScheduledAppointment = {
   status: string;
   allocationSummary: string;
   consignorId: string | null;
+  phone: string | null;
 };
 
 export type DropoffEvent = {
@@ -102,9 +103,9 @@ export async function getDropoffEvents(db: D1Database): Promise<DropoffEvent[]> 
   return Promise.all(eventRows.results.map((event) => getDropoffEvent(db, event.id, defaults, areaDefaults)));
 }
 
-export async function getDropoffEventById(db: D1Database, eventId: number) {
+export async function getDropoffEventById(db: D1Database, eventId: number, statusFilter?: string) {
   const [defaults, areaDefaults] = await Promise.all([getDefaultDailyCapacity(db), getAreaDefaults(db)]);
-  return getDropoffEvent(db, eventId, defaults, areaDefaults);
+  return getDropoffEvent(db, eventId, defaults, areaDefaults, statusFilter);
 }
 
 export async function createDropoffEvent(db: D1Database, input: DropoffEventInput): Promise<ScheduleResult> {
@@ -229,6 +230,7 @@ async function getDropoffEvent(
   eventId: number,
   defaultDailyCapacity: number,
   areaDefaults: CapacityAreaDefaults[],
+  statusFilter?: string,
 ): Promise<DropoffEvent> {
   const event = await db
     .prepare(
@@ -242,18 +244,18 @@ async function getDropoffEvent(
   const [effective, summary, usage, waitlistUsage, appointments] = await Promise.all([
     getEffectiveDateCapacity(db, event.date, defaultDailyCapacity, areaDefaults),
     db.prepare(
-      `SELECT SUM(CASE WHEN appointment.status = 'scheduled' THEN 1 ELSE 0 END) AS scheduledAppointments,
+      `SELECT SUM(CASE WHEN appointment.status IN ('scheduled', 'checked_in', 'completed') THEN 1 ELSE 0 END) AS scheduledAppointments,
               SUM(CASE WHEN appointment.status = 'waitlisted' THEN 1 ELSE 0 END) AS waitlistedAppointments,
-              COALESCE(SUM(CASE WHEN appointment.status = 'scheduled' THEN dt.capacity_points ELSE 0 END), 0) AS usedPoints
+              COALESCE(SUM(CASE WHEN appointment.status IN ('scheduled', 'checked_in', 'completed') THEN dt.capacity_points ELSE 0 END), 0) AS usedPoints
        FROM appointments appointment
        JOIN dropoff_types dt ON dt.id = appointment.dropoff_type_id
-       WHERE appointment.appointment_date = ? AND appointment.status IN ('scheduled', 'waitlisted')`,
+       WHERE appointment.appointment_date = ? AND appointment.status IN ('scheduled', 'checked_in', 'completed', 'waitlisted')`,
     ).bind(event.date).first<{ scheduledAppointments: number; waitlistedAppointments: number; usedPoints: number }>(),
     db.prepare(
       `SELECT allocation.item_area_id AS itemAreaId, COALESCE(SUM(allocation.capacity_points), 0) AS usedPoints
        FROM appointment_area_allocations allocation
        JOIN appointments appointment ON appointment.id = allocation.appointment_id
-       WHERE appointment.appointment_date = ? AND appointment.status = 'scheduled'
+       WHERE appointment.appointment_date = ? AND appointment.status IN ('scheduled', 'checked_in', 'completed')
        GROUP BY allocation.item_area_id`,
     ).bind(event.date).all<{ itemAreaId: number; usedPoints: number }>(),
     db.prepare(
@@ -263,7 +265,7 @@ async function getDropoffEvent(
        WHERE appointment.appointment_date = ? AND appointment.status = 'waitlisted'
        GROUP BY allocation.item_area_id`,
     ).bind(event.date).all<{ itemAreaId: number; usedPoints: number }>(),
-    getAppointmentsForDate(db, event.date),
+    getAppointmentsForDate(db, event.date, statusFilter),
   ]);
   if (!effective) throw new Response("Not Found", { status: 404 });
 
@@ -316,10 +318,10 @@ async function validateEventInput(db: D1Database, input: DropoffEventInput, isNe
   return errors;
 }
 
-async function getAppointmentsForDate(db: D1Database, date: string): Promise<ScheduledAppointment[]> {
+async function getAppointmentsForDate(db: D1Database, date: string, statusFilter?: string): Promise<ScheduledAppointment[]> {
   const { results } = await db.prepare(
     `SELECT appointment.id, COALESCE(NULLIF(TRIM(user.first_name || ' ' || user.last_name), ''), user.email) AS customer,
-            user.consignor_id AS consignorId,
+            user.consignor_id AS consignorId, user.phone,
             type.name AS loadType, type.capacity_points AS capacityPoints, appointment.status,
             COALESCE(GROUP_CONCAT(area.name || ': ' || allocation.allocation_percent || '%', ' · '), '') AS allocationSummary
      FROM appointments appointment
@@ -327,10 +329,10 @@ async function getAppointmentsForDate(db: D1Database, date: string): Promise<Sch
      JOIN dropoff_types type ON type.id = appointment.dropoff_type_id
      LEFT JOIN appointment_area_allocations allocation ON allocation.appointment_id = appointment.id
      LEFT JOIN item_areas area ON area.id = allocation.item_area_id
-     WHERE appointment.appointment_date = ?
+     WHERE appointment.appointment_date = ? AND (? IS NULL OR appointment.status = ?)
      GROUP BY appointment.id
      ORDER BY CASE WHEN appointment.status = 'waitlisted' THEN 0 ELSE 1 END, appointment.waitlisted_at, appointment.created_at, appointment.id`,
-  ).bind(date).all<ScheduledAppointment>();
+  ).bind(date, statusFilter ?? null, statusFilter ?? null).all<ScheduledAppointment>();
   return results;
 }
 

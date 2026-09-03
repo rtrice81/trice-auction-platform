@@ -557,10 +557,10 @@ async function getCapacityEvaluation(
          FROM appointments appointment
          JOIN dropoff_types dt ON dt.id = appointment.dropoff_type_id
          WHERE appointment.appointment_date = ?
-           AND appointment.status = ?
+           AND appointment.status IN ('scheduled', 'checked_in', 'completed')
            AND appointment.id != ?`,
       )
-      .bind(appointmentDate, CONFIRMED_APPOINTMENT_STATUS, excludedAppointmentId ?? 0)
+      .bind(appointmentDate, excludedAppointmentId ?? 0)
       .first<{ usedPoints: number }>(),
     db
       .prepare(
@@ -569,11 +569,11 @@ async function getCapacityEvaluation(
          FROM appointment_area_allocations allocation
          JOIN appointments appointment ON appointment.id = allocation.appointment_id
          WHERE appointment.appointment_date = ?
-           AND appointment.status = ?
+           AND appointment.status IN ('scheduled', 'checked_in', 'completed')
            AND appointment.id != ?
          GROUP BY allocation.item_area_id`,
       )
-      .bind(appointmentDate, CONFIRMED_APPOINTMENT_STATUS, excludedAppointmentId ?? 0)
+      .bind(appointmentDate, excludedAppointmentId ?? 0)
       .all<{ itemAreaId: number; usedPoints: number }>(),
     db
       .prepare(
