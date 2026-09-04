@@ -15,18 +15,22 @@ export async function loader({ request }: Route.LoaderArgs) {
   const requestedDate = url.searchParams.get("date") ?? new Date().toISOString().slice(0, 10);
   if (!isIsoDate(requestedDate)) throw new Response("Choose a valid report date.", { status: 400 });
   const includeCancelled = url.searchParams.get("includeCancelled") === "true";
-  return { report: await getDailyDropoffScheduleReport(env.trice_auction_db, requestedDate, includeCancelled), includeCancelled };
+  const [report, dropoffDay] = await Promise.all([
+    getDailyDropoffScheduleReport(env.trice_auction_db, requestedDate, includeCancelled),
+    env.trice_auction_db.prepare("SELECT id FROM dropoff_days WHERE dropoff_date = ?").bind(requestedDate).first<{ id: number }>(),
+  ]);
+  return { report, includeCancelled, scheduleUrl: dropoffDay ? `/admin/schedule/${dropoffDay.id}` : "/admin/schedule" };
 }
 
 export default function DailyDropoffScheduleReport({ loaderData }: Route.ComponentProps) {
-  const { report, includeCancelled } = loaderData;
+  const { report, includeCancelled, scheduleUrl } = loaderData;
   const previousDate = shiftDate(report.date, -1);
   const nextDate = shiftDate(report.date, 1);
   const query = (date: string, include = includeCancelled) => `/admin/reports/dropoff-schedule?date=${date}${include ? "&includeCancelled=true" : ""}`;
   return <main className="schedule-report mx-auto max-w-[1500px] bg-white p-4 text-stone-950 sm:p-8">
     <style>{printStyles}</style>
     <div className="report-controls print-hide mb-6 flex flex-wrap items-end gap-3 border-b border-stone-200 pb-5">
-      <Link to={`/admin/schedule`} className="rounded border border-stone-300 px-3 py-2 font-semibold">← Daily schedules</Link>
+      <Link to={scheduleUrl} className="rounded border border-stone-300 px-3 py-2 font-semibold">← Daily Schedules</Link>
       <Link to={query(previousDate)} className="rounded border border-stone-300 px-3 py-2 font-semibold">Previous day</Link>
       <Link to={query(nextDate)} className="rounded border border-stone-300 px-3 py-2 font-semibold">Next day</Link>
       <Form method="get" className="flex flex-wrap items-end gap-3"><label className="text-sm font-semibold">Selected date<input type="date" name="date" defaultValue={report.date} className="mt-1 block rounded border border-stone-300 px-3 py-2 font-normal" /></label><label className="flex items-center gap-2 pb-2 text-sm"><input type="checkbox" name="includeCancelled" value="true" defaultChecked={includeCancelled} /> Include cancelled</label><button className="rounded border border-stone-300 px-3 py-2 font-semibold">View date</button></Form>

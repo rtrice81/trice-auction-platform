@@ -11,6 +11,9 @@ test("daily drop-off report is admin-only and exposes the print route", () => {
   assert.match(routes, /admin\/reports\/dropoff-schedule/);
   assert.match(route, /requireRole\(request, env\.trice_auction_db, runtime, "admin"\)/);
   assert.match(route, /window\.print\(\)/);
+  assert.match(route, /SELECT id FROM dropoff_days WHERE dropoff_date = \?/);
+  assert.match(route, /scheduleUrl: dropoffDay \? `\/admin\/schedule\/\$\{dropoffDay\.id\}` : "\/admin\/schedule"/);
+  assert.match(route, /<Link to=\{scheduleUrl\}[^>]*>← Daily Schedules<\/Link>/);
   assert.match(routes, /layout\("routes\/admin\.layout\.tsx", \[[\s\S]*admin\/reports\/dropoff-schedule/s);
   assert.match(route, /report-controls print-hide/);
   assert.match(adminLayout, /<aside className="print-hide/);
