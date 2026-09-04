@@ -8,7 +8,7 @@ export function PageIntro({ eyebrow = "Trice Auctions", title, children }: { eye
   return <header className="ta-page-intro"><p className="ta-eyebrow">{eyebrow}</p><h1>{title}</h1>{children ? <p>{children}</p> : null}</header>;
 }
 
-export function PageCard({ title, children, className = "" }: { title: string; children: ReactNode; className?: string }) {
+export function PageCard({ title, children, className = "" }: { title: ReactNode; children: ReactNode; className?: string }) {
   return <section className={`ta-card ${className}`}><h2 className="ta-card-heading">{title}</h2><div className="ta-card-body">{children}</div></section>;
 }
 
