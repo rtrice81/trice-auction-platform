@@ -5,7 +5,6 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
-  useMatches,
 } from "react-router";
 
 import type { Route } from "./+types/root";
@@ -57,10 +56,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 export default function App({ loaderData }: Route.ComponentProps) {
   const user = loaderData.user;
   const logo = loaderData.logo;
-  const isStandaloneRoute = useMatches().some(
-    (match) => (match.handle as { standalone?: boolean } | undefined)?.standalone === true,
-  );
-  return <>{isStandaloneRoute ? null : <AppHeader user={user} logo={logo} />}<Outlet /></>;
+  return <><AppHeader user={user} logo={logo} /><Outlet /></>;
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {

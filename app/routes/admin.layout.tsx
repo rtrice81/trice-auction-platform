@@ -18,7 +18,7 @@ export default function AdminLayout({ loaderData }: Route.ComponentProps) {
   return (
     <div className="ta-admin min-h-screen">
       <div className="mx-auto max-w-screen-2xl md:flex">
-        <aside className="border-b border-[#d7d9dc] bg-white md:min-h-screen md:w-72 md:border-r md:border-b-0">
+        <aside className="print-hide border-b border-[#d7d9dc] bg-white md:min-h-screen md:w-72 md:border-r md:border-b-0">
           <div className="p-4 md:sticky md:top-0">
             <Link to="/admin/schedule" className="block text-sm font-bold tracking-[0.16em] text-[#9d302f] uppercase">Administration</Link>
             <p className="mt-1 text-sm text-[#666a70]">Auction operations</p>
@@ -30,7 +30,7 @@ export default function AdminLayout({ loaderData }: Route.ComponentProps) {
           </div>
         </aside>
         <div className="min-w-0 flex-1">
-          <div className="border-b border-[#d7d9dc] bg-white px-6 py-4 text-sm font-semibold text-[#666a70] md:px-10">Admin workspace</div>
+          <div className="print-hide border-b border-[#d7d9dc] bg-white px-6 py-4 text-sm font-semibold text-[#666a70] md:px-10">Admin workspace</div>
           <Outlet />
         </div>
       </div>

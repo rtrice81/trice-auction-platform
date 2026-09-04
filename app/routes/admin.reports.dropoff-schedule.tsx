@@ -7,9 +7,6 @@ import { formatAppointmentStatusLabel } from "../lib/appointment-status";
 
 const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
 
-// The root route uses this to intentionally render the report without application chrome.
-export const handle = { standalone: true };
-
 export function meta() { return [{ title: "Daily Drop-Off Schedule | Trice Auctions" }]; }
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -28,7 +25,7 @@ export default function DailyDropoffScheduleReport({ loaderData }: Route.Compone
   const query = (date: string, include = includeCancelled) => `/admin/reports/dropoff-schedule?date=${date}${include ? "&includeCancelled=true" : ""}`;
   return <main className="schedule-report mx-auto max-w-[1500px] bg-white p-4 text-stone-950 sm:p-8">
     <style>{printStyles}</style>
-    <div className="report-controls mb-6 flex flex-wrap items-end gap-3 border-b border-stone-200 pb-5">
+    <div className="report-controls print-hide mb-6 flex flex-wrap items-end gap-3 border-b border-stone-200 pb-5">
       <Link to={`/admin/schedule`} className="rounded border border-stone-300 px-3 py-2 font-semibold">← Daily schedules</Link>
       <Link to={query(previousDate)} className="rounded border border-stone-300 px-3 py-2 font-semibold">Previous day</Link>
       <Link to={query(nextDate)} className="rounded border border-stone-300 px-3 py-2 font-semibold">Next day</Link>
@@ -59,7 +56,7 @@ const printStyles = `
   @page { size: landscape; margin: 0.45in; }
   @media print {
     html, body { background: #fff !important; color: #000 !important; }
-    .report-controls { display: none !important; }
+    .print-hide { display: none !important; }
     .schedule-report { max-width: none !important; margin: 0 !important; padding: 0 !important; }
     .report-table-wrap { overflow: visible !important; }
     .report-table { font-size: 8pt; }
