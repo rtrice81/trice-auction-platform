@@ -14,6 +14,12 @@ test("schedule detail opens a schedule-bound Add Appointment modal", () => {
   assert.match(appointmentModal, /Close Add Appointment dialog/);
 });
 
+test("schedule detail prioritizes appointments before drop-off day settings", () => {
+  assert.ok(scheduleDetail.indexOf('id="appointments"') < scheduleDetail.indexOf('id="dropoff-day-settings"'));
+  assert.ok(scheduleDetail.indexOf("Print Daily Schedule") < scheduleDetail.indexOf('id="dropoff-day-settings"'));
+  assert.match(scheduleDetail, /preventScrollReset/);
+});
+
 test("schedule-bound appointments require admin access and lock the submitted date server-side", () => {
   assert.match(appointmentRoute, /requireRole\(request, env\.trice_auction_db, runtime, "admin"\)/);
   assert.match(appointmentRoute, /getDropoffEventById\(env\.trice_auction_db, scheduleId\)/);
