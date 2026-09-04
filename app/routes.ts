@@ -33,5 +33,6 @@ export default [
     route("admin/schedule/new", "routes/admin.schedule.new.tsx"),
     route("admin/schedule/:id", "routes/admin.schedule.detail.tsx"),
   ]),
+  route("admin/reports/dropoff-schedule", "routes/admin.reports.dropoff-schedule.tsx"),
   route("branding/logo", "routes/branding.logo.ts"),
 ] satisfies RouteConfig;
