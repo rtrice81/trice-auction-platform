@@ -20,6 +20,11 @@ test("schedule detail prioritizes appointments before drop-off day settings", ()
   assert.match(scheduleDetail, /preventScrollReset/);
 });
 
+test("appointment actions share the appointments header row", () => {
+  assert.match(scheduleDetail, /items-center justify-between gap-4.*<h2 className="text-2xl font-bold">Appointments<\/h2>.*AddAppointmentModal.*Print Daily Schedule/s);
+  assert.ok(scheduleDetail.indexOf("Print Daily Schedule") < scheduleDetail.indexOf("APPOINTMENT_STATUS_FILTERS.map"));
+});
+
 test("schedule-bound appointments require admin access and lock the submitted date server-side", () => {
   assert.match(appointmentRoute, /requireRole\(request, env\.trice_auction_db, runtime, "admin"\)/);
   assert.match(appointmentRoute, /getDropoffEventById\(env\.trice_auction_db, scheduleId\)/);
