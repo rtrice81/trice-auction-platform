@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { Form } from "react-router";
 import { ConfirmationForm } from "./confirmation-form";
+import { formatAppointmentStatusLabel } from "../lib/appointment-status";
 
 export type AdminAppointmentSummary = {
   id: number;
@@ -14,7 +15,7 @@ export type AdminAppointmentSummary = {
 
 export function AppointmentStatusBadge({ status }: { status: string }) {
   const color = status === "scheduled" ? "bg-amber-100 text-amber-900" : status === "completed" ? "bg-emerald-100 text-emerald-900" : status === "cancelled" ? "bg-red-100 text-red-900" : "bg-slate-200 text-slate-800";
-  return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold capitalize ${color}`}>{status.replaceAll("_", " ")}</span>;
+  return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${color}`}>{formatAppointmentStatusLabel(status)}</span>;
 }
 
 export function AppointmentSummaryList({ appointments, attendanceControls = false }: { appointments: AdminAppointmentSummary[]; attendanceControls?: boolean }) {
