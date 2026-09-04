@@ -5,11 +5,16 @@ import { readFile } from "node:fs/promises";
 const route = await readFile(new URL("../app/routes/admin.reports.dropoff-schedule.tsx", import.meta.url), "utf8");
 const service = await readFile(new URL("../app/services/dropoff-schedule-report.server.ts", import.meta.url), "utf8");
 const routes = await readFile(new URL("../app/routes.ts", import.meta.url), "utf8");
+const root = await readFile(new URL("../app/root.tsx", import.meta.url), "utf8");
 
 test("daily drop-off report is admin-only and exposes the print route", () => {
   assert.match(routes, /admin\/reports\/dropoff-schedule/);
   assert.match(route, /requireRole\(request, env\.trice_auction_db, runtime, "admin"\)/);
   assert.match(route, /window\.print\(\)/);
+  assert.match(route, /handle = \{ standalone: true \}/);
+  assert.match(root, /useMatches\(\).*standalone/s);
+  assert.match(root, /isStandaloneRoute \? null : <AppHeader/);
+  assert.doesNotMatch(route, /branding\/logo/);
 });
 
 test("report query orders by stored time and includes operational appointment details", () => {

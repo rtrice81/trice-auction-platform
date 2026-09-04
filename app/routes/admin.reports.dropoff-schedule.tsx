@@ -7,6 +7,9 @@ import { formatAppointmentStatusLabel } from "../lib/appointment-status";
 
 const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
 
+// The root route uses this to intentionally render the report without application chrome.
+export const handle = { standalone: true };
+
 export function meta() { return [{ title: "Daily Drop-Off Schedule | Trice Auctions" }]; }
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -33,7 +36,7 @@ export default function DailyDropoffScheduleReport({ loaderData }: Route.Compone
       <button type="button" onClick={() => window.print()} className="rounded bg-stone-950 px-4 py-2 font-bold text-white">Print</button>
     </div>
     <header className="report-header border-b-2 border-stone-950 pb-4">
-      <div className="flex items-start justify-between gap-5"><div className="flex items-center gap-4"><img src="/branding/logo" alt="Trice Auctions" className="report-logo max-h-14 max-w-40 object-contain" onError={(event) => { event.currentTarget.style.display = "none"; }} /><div><p className="text-xs font-bold tracking-[0.15em] uppercase">Trice Auctions</p><h1 className="text-2xl font-bold">Daily Drop-Off Schedule</h1><p className="mt-1 text-sm">{formatDate(report.date)}{report.eventName ? ` · ${report.eventName}` : ""}</p></div></div><p className="text-right text-xs text-stone-600">Generated {new Date().toLocaleString()}</p></div>
+      <div><h1 className="text-2xl font-bold">Daily Drop-Off Schedule</h1><p className="mt-1 text-sm">{formatDate(report.date)}{report.eventName ? ` · ${report.eventName}` : ""}</p></div>
       <dl className="report-totals mt-4 grid grid-cols-2 gap-x-5 gap-y-2 text-sm sm:grid-cols-3 lg:grid-cols-6"><Metric label="Scheduled" value={report.totals.scheduled} /><Metric label="Checked In" value={report.totals.checkedIn} /><Metric label="Completed" value={report.totals.completed} /><Metric label="No-Shows" value={report.totals.noShow} /><Metric label="Last-Minute Cancellations" value={report.totals.lastMinuteCancelled} /><Metric label="Waitlisted" value={report.totals.waitlisted} /></dl>
       {report.capacity ? <p className="mt-3 text-xs"><strong>Capacity:</strong> Normal {report.capacity.normal} · Confirmed usage {report.capacity.confirmed} · Waitlist usage {report.capacity.waitlist}</p> : null}
     </header>
@@ -58,7 +61,6 @@ const printStyles = `
     html, body { background: #fff !important; color: #000 !important; }
     .report-controls { display: none !important; }
     .schedule-report { max-width: none !important; margin: 0 !important; padding: 0 !important; }
-    .report-logo { max-height: 0.5in; }
     .report-table-wrap { overflow: visible !important; }
     .report-table { font-size: 8pt; }
     .report-table thead { display: table-header-group; }
