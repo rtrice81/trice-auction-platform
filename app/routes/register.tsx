@@ -3,12 +3,14 @@ import { useCallback, useRef, useState } from "react";
 import { data, Form, redirect, useSubmit } from "react-router";
 import type { Route } from "./+types/register";
 import { getAuth, syncApplicationUser } from "../services/auth.server";
+import { queueInternalUserRegistration } from "../services/internal-appointment-notifications.server";
+import { processDueNotificationJobs } from "../services/notification.server";
 import { getPendingBookingToken } from "../services/pending-booking.server";
 import { createPublicFormStart, verifyPublicFormSubmission } from "../services/public-form-protection.server";
 import { PublicFormProtection } from "../components/public-form-protection";
 import { normalizePhoneNumber, registrationInputFromForm, validateRegistrationInput } from "../lib/registration-validation";
 import { validateRegistrationPasswords } from "../lib/registration-password-validation";
-const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string; TURNSTILE_SITE_KEY?: string; TURNSTILE_SECRET_KEY?: string };
+const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string; TURNSTILE_SITE_KEY?: string; TURNSTILE_SECRET_KEY?: string; RESEND_API_KEY?: string; RESEND_FROM_EMAIL?: string; TELNYX_API_KEY?: string; TELNYX_FROM_NUMBER?: string; TELNYX_WEBHOOK_PUBLIC_KEY?: string; APP_BASE_URL?: string };
 export async function loader({ request }: Route.LoaderArgs) {
   const protection = await createPublicFormStart(request, "registration", runtime);
   return data({ turnstileSiteKey: runtime.TURNSTILE_SITE_KEY ?? "", formStartToken: protection.token }, { headers: protection.headers });
@@ -23,7 +25,13 @@ export async function action({ request }: Route.ActionArgs) {
   const response = await getAuth(env.trice_auction_db, runtime).handler(new Request(new URL("/api/auth/sign-up/email", request.url), { method: "POST", headers: { "content-type": "application/json", origin: new URL(request.url).origin }, body: JSON.stringify({ name: `${input.firstName} ${input.lastName}`, email: input.email, password: input.password }) }));
   if (!response.ok) return data({ error: "Registration could not be completed." }, { status: 400 });
   const payload = await response.json() as { user: { id: string; email: string; name?: string } };
-  await syncApplicationUser(env.trice_auction_db, { ...payload.user, firstName: input.firstName, lastName: input.lastName, phone: normalizePhoneNumber(input.phone) });
+  const userId = await syncApplicationUser(env.trice_auction_db, { ...payload.user, firstName: input.firstName, lastName: input.lastName, phone: normalizePhoneNumber(input.phone) });
+  try {
+    await queueInternalUserRegistration(env.trice_auction_db, userId);
+    await processDueNotificationJobs(env.trice_auction_db, { ...runtime, APP_BASE_URL: runtime.APP_BASE_URL || new URL(request.url).origin });
+  } catch (error) {
+    console.error("New user registration notification failed", { userId, errorType: error instanceof Error ? error.name : "UnknownError" });
+  }
   return redirect(getPendingBookingToken(request) ? "/?resume=1" : "/", { headers: response.headers });
 }
 export default function Register({ loaderData, actionData }: Route.ComponentProps) {

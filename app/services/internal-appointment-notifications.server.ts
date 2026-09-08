@@ -8,6 +8,15 @@ export type InternalRecipient = {
   receiveCreated: number;
   receiveUpdated: number;
   receiveCancelled: number;
+  receiveRegistration: number;
+};
+
+export type UserRegistrationSnapshot = {
+  id: number;
+  firstName: string | null;
+  lastName: string | null;
+  email: string;
+  phone: string | null;
 };
 
 export type AppointmentActivitySnapshot = {
@@ -25,7 +34,8 @@ export type AppointmentActivitySnapshot = {
 export async function listInternalAppointmentRecipients(db: D1Database) {
   const { results } = await db.prepare(`SELECT id, label, email, active,
     receive_created AS receiveCreated, receive_updated AS receiveUpdated,
-    receive_cancelled AS receiveCancelled
+    receive_cancelled AS receiveCancelled,
+    receive_registration AS receiveRegistration
     FROM appointment_notification_recipients ORDER BY active DESC, label ASC, id ASC`).all<InternalRecipient>();
   return results;
 }
@@ -36,8 +46,8 @@ export async function saveInternalAppointmentRecipient(db: D1Database, input: Om
   if (!label) return { ok: false as const, error: "Recipient label is required." };
   if (!/^\S+@\S+\.\S+$/.test(email)) return { ok: false as const, error: "Enter a valid recipient email address." };
   try {
-    if (input.id) await db.prepare(`UPDATE appointment_notification_recipients SET label=?,email=?,active=?,receive_created=?,receive_updated=?,receive_cancelled=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(label, email, input.active, input.receiveCreated, input.receiveUpdated, input.receiveCancelled, input.id).run();
-    else await db.prepare(`INSERT INTO appointment_notification_recipients(label,email,active,receive_created,receive_updated,receive_cancelled) VALUES(?,?,?,?,?,?)`).bind(label, email, input.active, input.receiveCreated, input.receiveUpdated, input.receiveCancelled).run();
+    if (input.id) await db.prepare(`UPDATE appointment_notification_recipients SET label=?,email=?,active=?,receive_created=?,receive_updated=?,receive_cancelled=?,receive_registration=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(label, email, input.active, input.receiveCreated, input.receiveUpdated, input.receiveCancelled, input.receiveRegistration, input.id).run();
+    else await db.prepare(`INSERT INTO appointment_notification_recipients(label,email,active,receive_created,receive_updated,receive_cancelled,receive_registration) VALUES(?,?,?,?,?,?,?)`).bind(label, email, input.active, input.receiveCreated, input.receiveUpdated, input.receiveCancelled, input.receiveRegistration).run();
   } catch (error) {
     if (error instanceof Error && /unique/i.test(error.message)) return { ok: false as const, error: "That recipient email already exists." };
     throw error;
@@ -86,5 +96,23 @@ export async function queueInternalAppointmentActivity(db: D1Database, input: { 
       "email",
       recipient.email,
       JSON.stringify({ ...payload, recipientLabel: recipient.label }),
+    )));
+}
+
+export async function queueInternalUserRegistration(db: D1Database, userId: number) {
+  const user = await db.prepare(`SELECT id, first_name AS firstName, last_name AS lastName, email, phone
+    FROM users WHERE id=?`).bind(userId).first<UserRegistrationSnapshot>();
+  if (!user) return;
+  const { results } = await db.prepare(`SELECT label,email FROM appointment_notification_recipients
+    WHERE active=1 AND receive_registration=1`).all<{ label: string; email: string }>();
+  const occurredAt = new Date().toISOString();
+  await db.batch(results.map((recipient) => db.prepare(`INSERT INTO notification_jobs(idempotency_key,user_id,notification_type,channel,recipient,payload_json,scheduled_at)
+    VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(idempotency_key) DO NOTHING`).bind(
+      `internal_registration:${user.id}:${recipient.email}`,
+      user.id,
+      "internal_registration",
+      "email",
+      recipient.email,
+      JSON.stringify({ user, occurredAt, recipientLabel: recipient.label }),
     )));
 }
