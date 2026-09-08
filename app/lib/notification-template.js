@@ -2,6 +2,11 @@ export const TEMPLATE_PLACEHOLDERS = ["first_name", "last_name", "appointment_da
 export const TEMPLATE_TYPES = ["confirmation", "rescheduled", "cancelled", "waitlisted", "waitlist_confirmed", "waitlist_cancelled", "reminder_1", "reminder_2"];
 
 /** @param {string} value */
+export function formatNotificationLabel(value) {
+  return value.replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+/** @param {string} value */
 export function unknownTemplatePlaceholders(value) {
   return [...value.matchAll(/{{\s*([^{}\s]+)\s*}}/g)].map(match => match[1]).filter(name => !TEMPLATE_PLACEHOLDERS.includes(name));
 }
