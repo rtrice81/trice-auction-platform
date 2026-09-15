@@ -5,6 +5,7 @@ export type Customer = {
   name: string;
   email: string;
   phone: string | null;
+  consignorNumber: string | null;
   active: boolean;
   authUserId: string | null;
 };
@@ -15,6 +16,8 @@ export function customerInputFromForm(form: FormData) {
     lastName: String(form.get("lastName") ?? "").trim(),
     email: String(form.get("email") ?? "").trim().toLowerCase(),
     phone: String(form.get("phone") ?? "").trim(),
+    // This remains text so identifiers such as 001234 retain their leading zeroes.
+    consignorNumber: String(form.get("consignorNumber") ?? "").trim(),
     active: form.has("active"),
     temporaryPassword: String(form.get("temporaryPassword") ?? ""),
   };
@@ -41,7 +44,7 @@ export async function getCustomerById(db: D1Database, id: number) {
 export async function searchCustomers(db: D1Database, query: string) {
   const value = query.trim();
   const pattern = `%${value}%`;
-  const { results } = await db.prepare(customerSelectSql(`WHERE ? = '' OR LOWER(email) LIKE LOWER(?) OR LOWER(COALESCE(first_name, '') || ' ' || COALESCE(last_name, '')) LIKE LOWER(?) OR phone LIKE ? ORDER BY name COLLATE NOCASE ASC LIMIT 50`)).bind(value, pattern, pattern, pattern).all<CustomerRow>();
+  const { results } = await db.prepare(customerSelectSql(`WHERE ? = '' OR LOWER(email) LIKE LOWER(?) OR LOWER(COALESCE(first_name, '') || ' ' || COALESCE(last_name, '')) LIKE LOWER(?) OR phone LIKE ? OR LOWER(COALESCE(consignor_id, '')) LIKE LOWER(?) ORDER BY name COLLATE NOCASE ASC LIMIT 50`)).bind(value, pattern, pattern, pattern, pattern).all<CustomerRow>();
   return results.map(toCustomer).filter((customer): customer is Customer => customer !== null);
 }
 
@@ -51,9 +54,9 @@ export async function createCustomerApplicationUser(
   authUserId: string,
 ) {
   const result = await db.prepare(
-    `INSERT INTO users (email, first_name, last_name, phone, role, auth_user_id, active, must_change_password)
-     VALUES (?, ?, ?, ?, 'customer', ?, ?, 1)`,
-  ).bind(input.email, input.firstName, input.lastName, input.phone, authUserId, input.active ? 1 : 0).run();
+    `INSERT INTO users (email, first_name, last_name, phone, consignor_id, role, auth_user_id, active, must_change_password)
+     VALUES (?, ?, ?, ?, ?, 'customer', ?, ?, 1)`,
+  ).bind(input.email, input.firstName, input.lastName, input.phone, input.consignorNumber || null, authUserId, input.active ? 1 : 0).run();
   return Number(result.meta.last_row_id);
 }
 
@@ -62,7 +65,7 @@ type CustomerRow = Omit<Customer, "active"> & { active: number };
 function customerSelectSql(where: string) {
   return `SELECT id, first_name AS firstName, last_name AS lastName,
     COALESCE(NULLIF(TRIM(first_name || ' ' || last_name), ''), email) AS name,
-    email, phone, active, auth_user_id AS authUserId
+    email, phone, consignor_id AS consignorNumber, active, auth_user_id AS authUserId
     FROM users ${where}`;
 }
 

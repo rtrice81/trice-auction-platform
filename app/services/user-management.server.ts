@@ -10,7 +10,7 @@ export type ManagedUser = {
   role: Role;
   active: boolean;
   createdAt: string;
-  consignorId: string | null;
+  consignorNumber: string | null;
 };
 
 export type EditableManagedUser = ManagedUser & {
@@ -38,19 +38,20 @@ export async function listManagedUsers(db: D1Database, search = ""): Promise<Man
         u.role AS role,
         u.active AS active,
         u.created_at AS createdAt
-        , u.consignor_id AS consignorId
+        , u.consignor_id AS consignorNumber
       FROM users AS u
       LEFT JOIN "user" AS ai ON ai.id = u.auth_user_id
       WHERE ? = ''
          OR LOWER(u.email) LIKE LOWER(?)
          OR LOWER(COALESCE(NULLIF(TRIM(u.first_name || ' ' || u.last_name), ''), ai.name, u.email)) LIKE LOWER(?)
+         OR u.phone LIKE ?
          OR LOWER(COALESCE(u.consignor_id, '')) LIKE LOWER(?)
       ORDER BY u.active DESC, u.email COLLATE NOCASE ASC, u.id ASC`,
     )
-    .bind(query, searchPattern, searchPattern, searchPattern)
+    .bind(query, searchPattern, searchPattern, searchPattern, searchPattern)
     .all<Omit<ManagedUser, "active" | "name"> & { active: number; firstName: string | null; lastName: string | null; legacyName: string | null }>();
 
-  return results.map((user) => ({ id: user.id, name: displayUserName(user), email: user.email, role: user.role, active: user.active === 1, createdAt: user.createdAt, consignorId: user.consignorId }));
+  return results.map((user) => ({ id: user.id, name: displayUserName(user), email: user.email, role: user.role, active: user.active === 1, createdAt: user.createdAt, consignorNumber: user.consignorNumber }));
 }
 
 export async function getManagedUser(db: D1Database, userId: number): Promise<EditableManagedUser | null> {
@@ -58,7 +59,7 @@ export async function getManagedUser(db: D1Database, userId: number): Promise<Ed
   const user = await db.prepare(
     `SELECT u.id AS id, u.first_name AS firstName, u.last_name AS lastName, u.phone AS phone, u.auth_user_id AS authUserId,
       ai.name AS legacyName, u.email AS email, u.role AS role, u.active AS active, u.created_at AS createdAt,
-      u.consignor_id AS consignorId
+      u.consignor_id AS consignorNumber
      FROM users AS u
      LEFT JOIN "user" AS ai ON ai.id = u.auth_user_id
      WHERE u.id = ?`,
@@ -75,7 +76,7 @@ export async function updateManagedUser(
     lastName: string;
     email: string;
     phone: string;
-    consignorId: string;
+    consignorNumber: string;
     role: string;
     active?: boolean;
   },
@@ -85,7 +86,7 @@ export async function updateManagedUser(
   const lastName = input.lastName.trim();
   const email = input.email.trim().toLowerCase();
   const phone = input.phone.trim();
-  const consignorId = input.consignorId.trim();
+  const consignorNumber = input.consignorNumber.trim();
   if (!firstName) return failure("First name is required.");
   if (!lastName) return failure("Last name is required.");
   if (!/^\S+@\S+\.\S+$/.test(email)) return failure("Enter a valid email address.");
@@ -108,7 +109,7 @@ export async function updateManagedUser(
   const statements: D1PreparedStatement[] = [
     db.prepare(
       `UPDATE users SET first_name = ?, last_name = ?, email = ?, phone = ?, consignor_id = ?, role = ?, active = ? WHERE id = ?`,
-    ).bind(firstName, lastName, email, phone || null, consignorId || null, input.role, active ? 1 : 0, target.id),
+    ).bind(firstName, lastName, email, phone || null, consignorNumber || null, input.role, active ? 1 : 0, target.id),
   ];
 
   if (target.authUserId) {

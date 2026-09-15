@@ -86,7 +86,7 @@ export default function AdminUsers({ loaderData, actionData }: Route.ComponentPr
               type="search"
               name="q"
               defaultValue={loaderData.search}
-              placeholder="Search name, email, or Consignor ID"
+              placeholder="Search name, email, phone, or Consignor Number"
               className="min-w-0 flex-1 rounded-lg border border-stone-300 bg-white px-3 py-2.5 sm:max-w-md"
             />
             <button className="rounded-lg bg-stone-900 px-4 py-2.5 text-sm font-semibold text-white">Search</button>
@@ -100,7 +100,7 @@ export default function AdminUsers({ loaderData, actionData }: Route.ComponentPr
             <thead className="bg-stone-100 text-stone-700">
               <tr>
                 <th className="px-4 py-3 font-semibold">User</th>
-                <th className="px-4 py-3 font-semibold">Consignor ID</th>
+                <th className="px-4 py-3 font-semibold">Consignor Number</th>
                 <th className="px-4 py-3 font-semibold">Role</th>
                 <th className="px-4 py-3 font-semibold">Status</th>
                 <th className="px-4 py-3 font-semibold">Created</th>
@@ -114,7 +114,7 @@ export default function AdminUsers({ loaderData, actionData }: Route.ComponentPr
                     <div className="font-semibold text-stone-950">{user.name}</div>
                     <div>{user.email}</div>
                   </td>
-                  <td className="px-4 py-4 text-stone-600">{user.consignorId ? `Consignor #${user.consignorId}` : "—"}</td>
+                  <td className="px-4 py-4 text-stone-600">{user.consignorNumber || "—"}</td>
                   <td className="px-4 py-4 capitalize">{user.role}</td>
                   <td className="px-4 py-4">
                     <span className={user.active ? "font-semibold text-emerald-700" : "font-semibold text-stone-500"}>
