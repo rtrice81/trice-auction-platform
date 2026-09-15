@@ -47,8 +47,36 @@ test("modal keeps capacity overrides audited", () => {
   assert.match(appointmentRoute, /data\(\{ ok: true as const, appointmentId, message: "Appointment created with capacity override\." \}\)/);
 });
 
-test("modal customer searches and creates remain protected by the existing admin action", () => {
+test("modal supports searching, selecting, and creating customers without leaving the appointment flow", () => {
   assert.match(appointmentModal, /Search customers/);
   assert.match(appointmentModal, /name="customerId"/);
+  assert.match(appointmentModal, /Add New Customer/);
+  assert.match(appointmentModal, /name="intent" value="create-customer"/);
+  assert.match(appointmentModal, /First Name/);
+  assert.match(appointmentModal, /Last Name/);
+  assert.match(appointmentModal, /Temporary Password/);
+  assert.match(appointmentModal, /Consignor Number/);
+  assert.match(appointmentModal, /Cancel New Customer/);
+  assert.match(appointmentModal, /<fetcher\.Form method="post" action="\/admin\/appointments\/new"/);
+  assert.doesNotMatch(appointmentModal, /\/admin\/users/);
+});
+
+test("new inline customer is selected automatically and appointment fields remain mounted", () => {
+  assert.match(appointmentModal, /setSelectedCustomer\(customer\)/);
+  assert.match(appointmentModal, /setShowNewCustomer\(false\)/);
+  assert.match(appointmentModal, /<CustomerSummary customer=\{selectedCustomer\}/);
+  assert.match(appointmentModal, /Consignor Number: \$\{customer\.consignorNumber\}/);
+  assert.ok(appointmentModal.indexOf("showNewCustomer ? <InlineCustomerForm") < appointmentModal.indexOf("selectedCustomer ? <appointmentFetcher.Form"));
+});
+
+test("inline customer creation is admin-only, validates server-side, and safely handles duplicates", () => {
   assert.match(appointmentRoute, /requireRole\(request, env\.trice_auction_db, runtime, "admin"\)/);
+  assert.match(appointmentRoute, /form\.get\("intent"\) === "create-customer"/);
+  assert.match(appointmentRoute, /customerInputFromForm\(form\)/);
+  assert.match(appointmentRoute, /validateNewCustomer\(input\)/);
+  assert.match(appointmentRoute, /getCustomerByEmail\(env\.trice_auction_db, input\.email\)/);
+  assert.match(appointmentRoute, /getAuth\(env\.trice_auction_db, runtime\)\.handler/);
+  assert.match(appointmentRoute, /createCustomerApplicationUser\(env\.trice_auction_db, input, payload\.user\.id\)/);
+  assert.match(appointmentModal, /An account already exists for this email/);
+  assert.match(appointmentModal, /Select existing customer/);
 });

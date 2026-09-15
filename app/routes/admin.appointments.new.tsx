@@ -3,8 +3,8 @@ import { data, Form, Link, redirect } from "react-router";
 import type { Route } from "./+types/admin.appointments.new";
 import { createAppointmentOverrideAuditStatement } from "../services/appointment-override-audit.server";
 import { createBooking, createBookingWithOverride, getBookingOptions, type BookingInput, validateBooking } from "../services/booking.server";
-import { requireRole } from "../services/auth.server";
-import { getCustomerById, searchCustomers } from "../services/customer-management.server";
+import { getAuth, requireRole } from "../services/auth.server";
+import { createCustomerApplicationUser, customerInputFromForm, getCustomerByEmail, getCustomerById, searchCustomers, validateNewCustomer } from "../services/customer-management.server";
 import { getDropoffEventById } from "../services/schedule-management.server";
 import { AdminAppointmentFields } from "../components/admin-appointment-fields";
 import { queueAppointmentCreated } from "../services/notification.server";
@@ -22,7 +22,9 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export async function action({ request }: Route.ActionArgs) {
   const actor = await requireRole(request, env.trice_auction_db, runtime, "admin");
-  const form = await request.formData(); const scheduleId = Number(form.get("scheduleId")); const hasScheduleContext = Number.isInteger(scheduleId) && scheduleId > 0; const schedule = hasScheduleContext ? await getDropoffEventById(env.trice_auction_db, scheduleId) : null; if (hasScheduleContext && !schedule) throw new Response("Not Found", { status: 404 }); const input = bookingInputFromForm(form);
+  const form = await request.formData();
+  if (form.get("intent") === "create-customer") return createInlineCustomer(request, form);
+  const scheduleId = Number(form.get("scheduleId")); const hasScheduleContext = Number.isInteger(scheduleId) && scheduleId > 0; const schedule = hasScheduleContext ? await getDropoffEventById(env.trice_auction_db, scheduleId) : null; if (hasScheduleContext && !schedule) throw new Response("Not Found", { status: 404 }); const input = bookingInputFromForm(form);
   if (schedule) input.appointmentDate = schedule.date;
   const customer = await getCustomerById(env.trice_auction_db, input.userId);
   if (!customer) return data({ ok: false as const, errors: ["Choose an existing customer."], submitted: input }, { status: 400 });
@@ -37,6 +39,28 @@ export async function action({ request }: Route.ActionArgs) {
   return modalResponse ? data({ ok: true as const, appointmentId, message: "Appointment created with capacity override." }) : redirect(schedule ? `/admin/schedule/${schedule.id}?created=${appointmentId}` : `/admin/appointments/${appointmentId}`);
 }
 
+async function createInlineCustomer(request: Request, form: FormData) {
+  const input = customerInputFromForm(form);
+  const errors = validateNewCustomer(input);
+  if (errors.length) return data({ ok: false as const, errors, values: input }, { status: 400 });
+  const existing = await getCustomerByEmail(env.trice_auction_db, input.email);
+  if (existing) return data({ ok: false as const, duplicate: existing, values: input }, { status: 409 });
+  const response = await getAuth(env.trice_auction_db, runtime).handler(new Request(
+    new URL("/api/auth/sign-up/email", request.url),
+    { method: "POST", headers: { "content-type": "application/json", origin: new URL(request.url).origin }, body: JSON.stringify({ name: `${input.firstName} ${input.lastName}`, email: input.email, password: input.temporaryPassword }) },
+  ));
+  if (!response.ok) {
+    const duplicate = await getCustomerByEmail(env.trice_auction_db, input.email);
+    if (duplicate) return data({ ok: false as const, duplicate, values: input }, { status: 409 });
+    return data({ ok: false as const, errors: ["Customer account could not be created. Check the email and temporary password."], values: input }, { status: 400 });
+  }
+  const payload = await response.json() as { user: { id: string } };
+  const customerId = await createCustomerApplicationUser(env.trice_auction_db, input, payload.user.id);
+  const customer = await getCustomerById(env.trice_auction_db, customerId);
+  if (!customer) throw new Response("Customer could not be loaded.", { status: 500 });
+  return data({ ok: true as const, customer });
+}
+
 export default function NewAppointment({ loaderData, actionData }: Route.ComponentProps) {
   const submitted = actionData && "submitted" in actionData ? actionData.submitted : null;
   const needsOverride = actionData && !actionData.ok && "overridableViolations" in actionData && onlyOverridable(actionData.errors, actionData.overridableViolations);
@@ -46,7 +70,7 @@ export default function NewAppointment({ loaderData, actionData }: Route.Compone
   const appointmentPath = `/admin/appointments/new?appointmentDate=${selectedDate}${scheduleId ? `&scheduleId=${scheduleId}` : ""}`;
   const customerReturnTo = encodeURIComponent(appointmentPath);
   const backTo = scheduleId ? `/admin/schedule/${scheduleId}` : "/admin/appointments";
-  return <main className="mx-auto max-w-4xl p-8"><Link to={backTo}>← {scheduleId ? "Drop-Off Date" : "Appointments"}</Link><h1 className="mt-4 text-3xl font-bold">New Appointment</h1><p className="mt-2 rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950">Admins may schedule appointments outside the public signup window. Capacity and customer booking limits still apply.</p>{scheduleId ? <p className="mt-3 rounded border border-violet-200 bg-violet-50 p-3 text-sm text-violet-950">Adding an appointment for <strong>{loaderData.selectedDate?.eventName || selectedDate}</strong> on {selectedDate}. The drop-off date is locked to this schedule.</p> : null}<Form method="get" className="mt-5 flex gap-2"><input type="hidden" name="appointmentDate" value={selectedDate}/>{scheduleId ? <input type="hidden" name="scheduleId" value={scheduleId}/> : null}<input name="q" defaultValue={loaderData.q} placeholder="Search name, email, or phone" className="w-full border p-2"/><button className="border px-3">Search</button><Link className="border px-3 py-2" to={`/admin/customers/new?returnTo=${customerReturnTo}`}>Create Customer</Link></Form><div className="mt-3 rounded border p-3">{loaderData.selectedCustomer ? <strong>Selected: {loaderData.selectedCustomer.name} · {loaderData.selectedCustomer.email}</strong> : loaderData.customers.length ? loaderData.customers.map((customer) => <Link key={customer.id} className="mr-3 inline-block underline" to={`${appointmentPath}&customerId=${customer.id}&q=${encodeURIComponent(loaderData.q)}`}>{customer.name} ({customer.email})</Link>) : <span>No customer found. Use Create Customer to add one.</span>}</div>{actionData && !actionData.ok ? <div className="mt-4 rounded border border-red-200 bg-red-50 p-3" role="alert">{actionData.errors.join(" ")}</div> : null}{customerId ? <AppointmentForm options={loaderData.options} customerId={customerId} submitted={submitted} selectedDate={selectedDate} scheduleId={scheduleId}/>: <p className="mt-6 text-stone-600">Select a customer before creating an appointment.</p>}{needsOverride && submitted ? <OverrideForm input={submitted} scheduleId={scheduleId}/>: null}</main>;
+  return <main className="mx-auto max-w-4xl p-8"><Link to={backTo}>← {scheduleId ? "Drop-Off Date" : "Appointments"}</Link><h1 className="mt-4 text-3xl font-bold">New Appointment</h1><p className="mt-2 rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950">Admins may schedule appointments outside the public signup window. Capacity and customer booking limits still apply.</p>{scheduleId ? <p className="mt-3 rounded border border-violet-200 bg-violet-50 p-3 text-sm text-violet-950">Adding an appointment for <strong>{loaderData.selectedDate?.eventName || selectedDate}</strong> on {selectedDate}. The drop-off date is locked to this schedule.</p> : null}<Form method="get" className="mt-5 flex gap-2"><input type="hidden" name="appointmentDate" value={selectedDate}/>{scheduleId ? <input type="hidden" name="scheduleId" value={scheduleId}/> : null}<input name="q" defaultValue={loaderData.q} placeholder="Search name, email, or phone" className="w-full border p-2"/><button className="border px-3">Search</button><Link className="border px-3 py-2" to={`/admin/customers/new?returnTo=${customerReturnTo}`}>Create Customer</Link></Form><div className="mt-3 rounded border p-3">{loaderData.selectedCustomer ? <strong>Selected: {loaderData.selectedCustomer.name} · {loaderData.selectedCustomer.email}</strong> : loaderData.customers.length ? loaderData.customers.map((customer) => <Link key={customer.id} className="mr-3 inline-block underline" to={`${appointmentPath}&customerId=${customer.id}&q=${encodeURIComponent(loaderData.q)}`}>{customer.name} ({customer.email})</Link>) : <span>No customer found. Use Create Customer to add one.</span>}</div>{actionData && !actionData.ok && "errors" in actionData ? <div className="mt-4 rounded border border-red-200 bg-red-50 p-3" role="alert">{actionData.errors.join(" ")}</div> : null}{customerId ? <AppointmentForm options={loaderData.options} customerId={customerId} submitted={submitted} selectedDate={selectedDate} scheduleId={scheduleId}/>: <p className="mt-6 text-stone-600">Select a customer before creating an appointment.</p>}{needsOverride && submitted ? <OverrideForm input={submitted} scheduleId={scheduleId}/>: null}</main>;
 }
 
 function AppointmentForm({ options, customerId, submitted, selectedDate, scheduleId }: { options: Awaited<ReturnType<typeof getBookingOptions>>; customerId: number; submitted: BookingInput | null; selectedDate?: string; scheduleId: number | null }) { return <Form method="post" className="mt-6 grid gap-4 rounded border bg-white p-5"><input type="hidden" name="intent" value="save"/><input type="hidden" name="customerId" value={customerId}/>{scheduleId ? null : <label>Drop-Off Date<select required name="appointmentDate" defaultValue={submitted?.appointmentDate ?? selectedDate} className="mt-1 block w-full border p-2"><option value="">Choose a Drop-Off Date</option>{options.availableDates.map((date) => <option key={date.date} value={date.date}>{date.date}{date.eventName ? ` — ${date.eventName}` : ""}{date.adminStatus?.length ? ` [${date.adminStatus.join(" · ")}]` : ""}</option>)}</select></label>}<AdminAppointmentFields dropoffTypes={options.dropoffTypes} itemAreas={options.itemAreas} submitted={submitted} scheduleId={scheduleId} selectedDate={selectedDate}/><button className="rounded bg-stone-900 px-4 py-2 font-semibold text-white">Create appointment</button></Form>; }
