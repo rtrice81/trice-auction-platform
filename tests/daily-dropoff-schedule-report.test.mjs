@@ -19,8 +19,11 @@ test("daily drop-off report is admin-only and exposes the print route", () => {
   assert.match(adminLayout, /<aside className="print-hide/);
 });
 
-test("report query orders by stored time and includes operational appointment details", () => {
+test("report preserves stored-time ordering without exposing appointment times", () => {
   assert.match(service, /appointment\.appointment_time ASC, appointment\.created_at ASC/);
+  assert.doesNotMatch(service, /appointment_time AS appointmentTime/);
+  assert.doesNotMatch(route, /<th>Time<\/th>/);
+  assert.doesNotMatch(route, /appointment\.appointmentTime/);
   assert.match(service, /user\.consignor_id AS consignorId/);
   assert.match(service, /appointment\.checked_in_at AS checkedInAt/);
   assert.match(service, /appointment\.admin_notes AS adminNotes/);
