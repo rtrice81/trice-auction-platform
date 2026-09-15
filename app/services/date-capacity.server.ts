@@ -1,6 +1,8 @@
 export type CapacityAreaDefaults = {
   id: number;
   name: string;
+  measurementType: "shelves" | "square_feet" | "points";
+  pointsPerUnit: number;
   normalCapacityPoints: number;
   overflowAllowancePoints: number;
 };

@@ -9,6 +9,7 @@ import {
   getDropoffEventById,
   setDropoffEventOpen,
   updateDropoffEvent,
+  type EventArea,
   type ScheduleResult,
 } from "../services/schedule-management.server";
 import { queueEventOperationalNotification } from "../services/notification.server";
@@ -56,6 +57,7 @@ export default function DropoffEventDetail({ loaderData, actionData }: Route.Com
     <main className="mx-auto max-w-5xl p-8">
       <Link to="/admin/schedule">← Drop-Off Events</Link>
       <header className="mt-4"><h1 className="text-3xl font-bold">{event.eventName || "Drop-Off Event"}</h1><p className="mt-1 text-stone-600">{event.date} · {event.visibility === "private" ? "Private / Internal" : "Public"} · {event.isOpen ? "Open for bookings" : "Closed for bookings"}</p></header>
+      <StorageCapacitySummary areas={event.areas}/>
       {loaderData.created ? <p className="mt-4 rounded border border-emerald-200 bg-emerald-50 p-3" role="status">Appointment created and added to this Drop-Off Date.</p> : null}
       {actionData?.ok ? <p className="mt-4 rounded border border-emerald-200 bg-emerald-50 p-3" role="status">{actionData.message}</p> : null}
       {actionData && !actionData.ok ? <p className="mt-4 rounded border border-red-200 bg-red-50 p-3" role="alert">{actionData.errors.join(" ")}</p> : null}
@@ -63,4 +65,17 @@ export default function DropoffEventDetail({ loaderData, actionData }: Route.Com
       <section aria-labelledby="dropoff-day-settings" className="mt-10 border-t border-stone-200 pt-8"><div className="flex flex-wrap items-start justify-between gap-4"><div><h2 id="dropoff-day-settings" className="text-2xl font-bold">Drop-Off Day Settings</h2><p className="mt-1 text-sm text-stone-600">Manage booking availability, capacity, and internal operating notes.</p></div><Form method="post"><input type="hidden" name="intent" value={event.isOpen ? "close" : "open"} /><button className="rounded border px-3 py-2">{event.isOpen ? "Close event" : "Open event"}</button></Form></div><Form method="post" className="mt-6 rounded border bg-white p-6"><input type="hidden" name="intent" value="save" /><DropoffEventForm event={event} submitLabel="Save event changes" includeDate={false} /></Form><section className="mt-8 rounded border border-red-200 bg-red-50 p-5"><h3 className="font-bold">Delete event</h3><p className="mt-1 text-sm">Deletion is available only when this event has no appointments. Otherwise close it to preserve operational history.</p><ConfirmationForm method="post" className="mt-3" confirmation={{ title: "Permanently delete Drop-Off Event?", description: <>Are you sure you want to permanently delete this item? This action cannot be undone.<p className="mt-2 text-sm">{event.eventName || "Drop-Off Event"} · {event.date}</p></>, confirmLabel: "Permanently delete", destructive: true }}><input type="hidden" name="intent" value="delete" /><button className="text-sm font-semibold text-red-800 underline">Delete Drop-Off Event</button></ConfirmationForm></section></section>
     </main>
   );
+}
+
+function StorageCapacitySummary({ areas }: { areas: EventArea[] }) {
+  return <section aria-labelledby="storage-capacity-heading" className="mt-6"><div className="flex flex-wrap items-baseline justify-between gap-2"><h2 id="storage-capacity-heading" className="text-xl font-bold">Storage Capacity</h2><p className="text-sm text-stone-600">Confirmed appointments only; cancelled appointments are excluded.</p></div><div className="mt-3 grid gap-4 md:grid-cols-3">{areas.map((area) => <article key={area.itemAreaId} className="rounded-xl border border-stone-200 bg-white p-4 shadow-sm"><div className="flex items-start justify-between gap-3"><h3 className="font-semibold text-stone-950">{area.name}</h3><span className={area.overrideUsageUnits > 0 ? "rounded-full bg-red-100 px-2 py-1 text-xs font-bold text-red-900" : "rounded-full bg-stone-100 px-2 py-1 text-xs font-bold text-stone-700"}>{formatPercent(area.percentUsed)}</span></div><p className="mt-3 text-sm text-stone-600">Total capacity: {formatStorageAmount(area.capacityUnits, area.measurementType)}</p><p className="mt-1 text-sm text-stone-800"><strong>{formatStorageAmount(area.confirmedUsageUnits, area.measurementType)}</strong> used · {formatStorageAmount(area.remainingCapacityUnits, area.measurementType)} remaining</p><p className="mt-1 text-sm text-stone-600">{formatPercent(area.percentUsed)} used</p><div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-200" role="progressbar" aria-label={`${area.name} storage capacity used`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(area.progressPercent)}><div className={area.overrideUsageUnits > 0 ? "h-full bg-red-700" : "h-full bg-amber-700"} style={{ width: `${area.progressPercent}%` }}/></div>{area.overrideUsageUnits > 0 ? <p className="mt-3 text-sm font-semibold text-red-800">Over capacity / admin override: {formatStorageAmount(area.overrideUsageUnits, area.measurementType)}</p> : null}{area.waitlistUsageUnits > 0 ? <p className="mt-2 text-xs text-stone-600">Waitlist: {formatStorageAmount(area.waitlistUsageUnits, area.measurementType)} / {formatStorageAmount(area.overflowAllowanceUnits, area.measurementType)} overflow capacity</p> : null}</article>)}</div></section>;
+}
+
+function formatStorageAmount(value: number, measurementType: EventArea["measurementType"]) {
+  const amount = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
+  return `${amount}${measurementType === "square_feet" ? " sq ft" : measurementType === "shelves" ? " shelves" : " points"}`;
+}
+
+function formatPercent(value: number) {
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(value)}%`;
 }

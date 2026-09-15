@@ -5,6 +5,27 @@ import test from "node:test";
 const scheduleDetail = await readFile(new URL("../app/routes/admin.schedule.detail.tsx", import.meta.url), "utf8");
 const appointmentRoute = await readFile(new URL("../app/routes/admin.appointments.new.tsx", import.meta.url), "utf8");
 const appointmentModal = await readFile(new URL("../app/components/add-appointment-modal.tsx", import.meta.url), "utf8");
+const scheduleManagement = await readFile(new URL("../app/services/schedule-management.server.ts", import.meta.url), "utf8");
+
+test("storage capacity summary is at the top of the schedule detail", () => {
+  assert.match(scheduleDetail, /<StorageCapacitySummary areas=\{event\.areas\}\/>/);
+  assert.ok(scheduleDetail.indexOf("<StorageCapacitySummary") < scheduleDetail.indexOf('id="appointments"'));
+  assert.match(scheduleDetail, /md:grid-cols-3/);
+  assert.match(scheduleDetail, /role="progressbar"/);
+  assert.match(scheduleDetail, /Over capacity \/ admin override/);
+});
+
+test("storage summary uses server-side effective capacity and confirmed appointment usage", () => {
+  assert.match(scheduleManagement, /getEffectiveDateCapacity\(db, event\.date/);
+  assert.match(scheduleManagement, /appointment\.status IN \('scheduled', 'checked_in', 'completed'\)/);
+  assert.match(scheduleManagement, /const remaining = Math\.max\(0, area\.capacityPoints - used\)/);
+  assert.match(scheduleManagement, /const overrideUsage = Math\.max\(0, used - area\.capacityPoints\)/);
+  assert.match(scheduleManagement, /const percentUsed = area\.capacityPoints > 0/);
+  assert.match(scheduleManagement, /capacityUnits: toStorageUnits\(area\.capacityPoints, area\.pointsPerUnit\)/);
+  assert.match(scheduleManagement, /confirmedUsageUnits: toStorageUnits\(used, area\.pointsPerUnit\)/);
+  assert.match(scheduleManagement, /remainingCapacityUnits: toStorageUnits\(remaining, area\.pointsPerUnit\)/);
+  assert.match(scheduleManagement, /progressPercent: Math\.min\(percentUsed, 100\)/);
+});
 
 test("schedule detail opens a schedule-bound Add Appointment modal", () => {
   assert.match(scheduleDetail, /<AddAppointmentModal scheduleId=\{event\.id\} appointmentDate=\{event\.date\}/);

@@ -23,9 +23,20 @@ export type DropoffEventInput = {
 
 export type EventArea = EventAreaInput & {
   name: string;
+  measurementType: "shelves" | "square_feet" | "points";
+  pointsPerUnit: number;
   confirmedUsagePoints: number;
   waitlistUsagePoints: number;
   remainingWaitlistPoints: number;
+  capacityUnits: number;
+  confirmedUsageUnits: number;
+  remainingCapacityUnits: number;
+  percentUsed: number;
+  progressPercent: number;
+  overrideUsageUnits: number;
+  overflowAllowanceUnits: number;
+  waitlistUsageUnits: number;
+  remainingWaitlistUnits: number;
 };
 
 export type ScheduledAppointment = {
@@ -287,14 +298,30 @@ async function getDropoffEvent(
     remainingPoints: effective.dailyCapacityPoints - usedPoints,
     areas: effective.areas.map((area) => {
       const used = usedByArea.get(area.id) ?? 0;
+      const waitlisted = waitlistedByArea.get(area.id) ?? 0;
+      const remaining = Math.max(0, area.capacityPoints - used);
+      const overrideUsage = Math.max(0, used - area.capacityPoints);
+      const remainingWaitlist = Math.max(0, area.overflowAllowancePoints - waitlisted);
+      const percentUsed = area.capacityPoints > 0 ? (used / area.capacityPoints) * 100 : used > 0 ? 100 : 0;
       return {
         itemAreaId: area.id,
         name: area.name,
+        measurementType: area.measurementType,
+        pointsPerUnit: area.pointsPerUnit,
         capacityPoints: area.capacityPoints,
         overflowAllowancePoints: area.overflowAllowancePoints,
         confirmedUsagePoints: used,
-        waitlistUsagePoints: waitlistedByArea.get(area.id) ?? 0,
-        remainingWaitlistPoints: Math.max(0, area.overflowAllowancePoints - (waitlistedByArea.get(area.id) ?? 0)),
+        waitlistUsagePoints: waitlisted,
+        remainingWaitlistPoints: remainingWaitlist,
+        capacityUnits: toStorageUnits(area.capacityPoints, area.pointsPerUnit),
+        confirmedUsageUnits: toStorageUnits(used, area.pointsPerUnit),
+        remainingCapacityUnits: toStorageUnits(remaining, area.pointsPerUnit),
+        percentUsed,
+        progressPercent: Math.min(percentUsed, 100),
+        overrideUsageUnits: toStorageUnits(overrideUsage, area.pointsPerUnit),
+        overflowAllowanceUnits: toStorageUnits(area.overflowAllowancePoints, area.pointsPerUnit),
+        waitlistUsageUnits: toStorageUnits(waitlisted, area.pointsPerUnit),
+        remainingWaitlistUnits: toStorageUnits(remainingWaitlist, area.pointsPerUnit),
       };
     }),
     appointments,
@@ -345,11 +372,16 @@ async function getDefaultDailyCapacity(db: D1Database) {
 
 async function getAreaDefaults(db: D1Database): Promise<CapacityAreaDefaults[]> {
   const { results } = await db.prepare(
-    `SELECT id, name, normal_capacity_points AS normalCapacityPoints,
+    `SELECT id, name, measurement_type AS measurementType, points_per_unit AS pointsPerUnit,
+            normal_capacity_points AS normalCapacityPoints,
             overflow_allowance_points AS overflowAllowancePoints
      FROM item_areas WHERE active = 1 ORDER BY display_order, name`,
   ).all<CapacityAreaDefaults>();
   return results;
+}
+
+function toStorageUnits(points: number, pointsPerUnit: number) {
+  return pointsPerUnit > 0 ? points / pointsPerUnit : points;
 }
 
 function isIsoDate(value: string) {
