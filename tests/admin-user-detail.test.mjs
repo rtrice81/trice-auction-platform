@@ -38,6 +38,8 @@ test("staff tools on the detail page reuse the existing server-side status and a
   assert.match(detail, /Save Status: Ban Drop-Offs/);
   assert.match(detail, /Save Status: Allow Drop-Offs/);
   assert.match(detail, /Add Note/);
+  assert.match(detail, /Drop-off restrictions are available for customer\/consignor accounts only\./);
+  assert.match(detail, /Internal customer notes are available for customer\/consignor accounts only\./);
   assert.match(detail, /actionData\?\.ok/);
 });
 
