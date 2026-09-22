@@ -50,6 +50,59 @@ export async function getCustomerAppointmentHistory(db: D1Database, customerUser
   return results;
 }
 
+export type CustomerAppointment = {
+  id: number;
+  appointmentDate: string;
+  appointmentTime: string | null;
+  createdAt: string;
+  status: string;
+  loadType: string;
+  description: string | null;
+  allocationSummary: string;
+};
+
+/**
+ * Returns the existing appointments for one user, organized for the admin
+ * user record. Appointments are date-only in the current booking workflow;
+ * the nullable legacy time is retained for any older records.
+ */
+export async function getCustomerAppointmentsByTiming(db: D1Database, customerUserId: number) {
+  const select = `SELECT appointment.id, appointment.appointment_date AS appointmentDate,
+            appointment.appointment_time AS appointmentTime, appointment.created_at AS createdAt,
+            appointment.status, type.name AS loadType, appointment.description,
+            COALESCE(GROUP_CONCAT(area.name || ': ' || allocation.allocation_percent || '%', ' · '), '') AS allocationSummary
+     FROM appointments appointment
+     JOIN dropoff_types type ON type.id = appointment.dropoff_type_id
+     LEFT JOIN appointment_area_allocations allocation ON allocation.appointment_id = appointment.id
+     LEFT JOIN item_areas area ON area.id = allocation.item_area_id`;
+  const [upcomingResult, pastResult] = await Promise.all([
+    db.prepare(`${select}
+      WHERE appointment.user_id = ?
+        AND appointment.appointment_date >= date('now')
+        AND (appointment.appointment_date > date('now')
+          OR appointment.appointment_time IS NULL
+          OR TRIM(appointment.appointment_time) = ''
+          OR appointment.appointment_time >= time('now'))
+        AND appointment.status NOT IN ('cancelled', 'last_minute_cancelled')
+      GROUP BY appointment.id
+      ORDER BY appointment.appointment_date ASC,
+        CASE WHEN appointment.appointment_time IS NULL OR TRIM(appointment.appointment_time) = '' THEN 1 ELSE 0 END,
+        appointment.appointment_time ASC, appointment.id ASC`).bind(customerUserId).all<CustomerAppointment>(),
+    db.prepare(`${select}
+      WHERE appointment.user_id = ?
+        AND (appointment.appointment_date < date('now')
+          OR (appointment.appointment_date = date('now')
+            AND appointment.appointment_time IS NOT NULL
+            AND TRIM(appointment.appointment_time) != ''
+            AND appointment.appointment_time < time('now'))
+          OR appointment.status IN ('cancelled', 'last_minute_cancelled'))
+      GROUP BY appointment.id
+      ORDER BY appointment.appointment_date DESC,
+        appointment.appointment_time DESC, appointment.id DESC`).bind(customerUserId).all<CustomerAppointment>(),
+  ]);
+  return { upcoming: upcomingResult.results, past: pastResult.results };
+}
+
 export async function setCustomerDropoffBan(db: D1Database, input: { customerUserId: number; actor: ApplicationUser; reason: string }) {
   const reason = input.reason.trim();
   if (!reason) return { ok: false as const, errors: ["A ban reason is required."] };

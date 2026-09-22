@@ -15,11 +15,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   const requestedDate = url.searchParams.get("date") ?? new Date().toISOString().slice(0, 10);
   if (!isIsoDate(requestedDate)) throw new Response("Choose a valid report date.", { status: 400 });
   const includeCancelled = url.searchParams.get("includeCancelled") === "true";
-  const [report, dropoffDay] = await Promise.all([
-    getDailyDropoffScheduleReport(env.trice_auction_db, requestedDate, includeCancelled),
-    env.trice_auction_db.prepare("SELECT id FROM dropoff_days WHERE dropoff_date = ?").bind(requestedDate).first<{ id: number }>(),
-  ]);
-  return { report, includeCancelled, scheduleUrl: dropoffDay ? `/admin/schedule/${dropoffDay.id}` : "/admin/schedule" };
+  const report = await getDailyDropoffScheduleReport(env.trice_auction_db, requestedDate, includeCancelled);
+  return { report, includeCancelled, scheduleUrl: report.dropoffDayId ? `/admin/schedule/${report.dropoffDayId}` : "/admin/schedule" };
 }
 
 export default function DailyDropoffScheduleReport({ loaderData }: Route.ComponentProps) {

@@ -16,7 +16,7 @@ import { queueEventOperationalNotification } from "../services/notification.serv
 import { ConfirmationForm } from "../components/confirmation-form";
 import { AppointmentSummaryList } from "../components/admin-appointment-summary";
 import { AddAppointmentModal } from "../components/add-appointment-modal";
-import { getBookingOptions } from "../services/booking.server";
+import { getBookingFormOptions } from "../services/booking.server";
 import { useState } from "react";
 import { isAttendanceAction, recordAppointmentAttendance } from "../services/appointment-attendance.server";
 import { APPOINTMENT_STATUS_FILTERS, formatAppointmentStatusLabel } from "../lib/appointment-status";
@@ -28,7 +28,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const status = new URL(request.url).searchParams.get("status") ?? "all";
   const [event, appointmentOptions] = await Promise.all([
     getDropoffEventById(env.trice_auction_db, Number(params.id), status === "all" ? undefined : status),
-    getBookingOptions(env.trice_auction_db, { adminScheduling: true }),
+    getBookingFormOptions(env.trice_auction_db),
   ]);
   return { event, appointmentOptions, status, created: new URL(request.url).searchParams.has("created") };
 }

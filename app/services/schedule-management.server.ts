@@ -252,36 +252,40 @@ async function getDropoffEvent(
     .first<{ id: number; date: string; eventName: string | null; description: string | null; visibility: "public" | "private"; isOpen: number; notes: string | null }>();
   if (!event) throw new Response("Not Found", { status: 404 });
 
-  const [effective, summary, usage, waitlistUsage, appointments] = await Promise.all([
+  const [effective, capacityUsage, appointments] = await Promise.all([
     getEffectiveDateCapacity(db, event.date, defaultDailyCapacity, areaDefaults),
     db.prepare(
-      `SELECT SUM(CASE WHEN appointment.status IN ('scheduled', 'checked_in', 'completed') THEN 1 ELSE 0 END) AS scheduledAppointments,
-              SUM(CASE WHEN appointment.status = 'waitlisted' THEN 1 ELSE 0 END) AS waitlistedAppointments,
-              COALESCE(SUM(CASE WHEN appointment.status IN ('scheduled', 'checked_in', 'completed') THEN dt.capacity_points ELSE 0 END), 0) AS usedPoints
-       FROM appointments appointment
-       JOIN dropoff_types dt ON dt.id = appointment.dropoff_type_id
-       WHERE appointment.appointment_date = ? AND appointment.status IN ('scheduled', 'checked_in', 'completed', 'waitlisted')`,
-    ).bind(event.date).first<{ scheduledAppointments: number; waitlistedAppointments: number; usedPoints: number }>(),
-    db.prepare(
-      `SELECT allocation.item_area_id AS itemAreaId, COALESCE(SUM(allocation.capacity_points), 0) AS usedPoints
-       FROM appointment_area_allocations allocation
-       JOIN appointments appointment ON appointment.id = allocation.appointment_id
-       WHERE appointment.appointment_date = ? AND appointment.status IN ('scheduled', 'checked_in', 'completed')
-       GROUP BY allocation.item_area_id`,
-    ).bind(event.date).all<{ itemAreaId: number; usedPoints: number }>(),
-    db.prepare(
-      `SELECT allocation.item_area_id AS itemAreaId, COALESCE(SUM(allocation.capacity_points), 0) AS usedPoints
-       FROM appointment_area_allocations allocation
-       JOIN appointments appointment ON appointment.id = allocation.appointment_id
-       WHERE appointment.appointment_date = ? AND appointment.status = 'waitlisted'
-       GROUP BY allocation.item_area_id`,
-    ).bind(event.date).all<{ itemAreaId: number; usedPoints: number }>(),
+      `WITH scoped_appointments AS (
+         SELECT appointment.id, appointment.status, dt.capacity_points AS capacityPoints
+         FROM appointments appointment
+         JOIN dropoff_types dt ON dt.id = appointment.dropoff_type_id
+         WHERE appointment.appointment_date = ?
+           AND appointment.status IN ('scheduled', 'checked_in', 'completed', 'waitlisted')
+       ), summary AS (
+         SELECT COALESCE(SUM(CASE WHEN status IN ('scheduled', 'checked_in', 'completed') THEN 1 ELSE 0 END), 0) AS scheduledAppointments,
+                COALESCE(SUM(CASE WHEN status = 'waitlisted' THEN 1 ELSE 0 END), 0) AS waitlistedAppointments,
+                COALESCE(SUM(CASE WHEN status IN ('scheduled', 'checked_in', 'completed') THEN capacityPoints ELSE 0 END), 0) AS usedPoints
+         FROM scoped_appointments
+       ), area_usage AS (
+         SELECT allocation.item_area_id AS itemAreaId,
+                COALESCE(SUM(CASE WHEN appointment.status IN ('scheduled', 'checked_in', 'completed') THEN allocation.capacity_points ELSE 0 END), 0) AS confirmedUsagePoints,
+                COALESCE(SUM(CASE WHEN appointment.status = 'waitlisted' THEN allocation.capacity_points ELSE 0 END), 0) AS waitlistUsagePoints
+         FROM appointment_area_allocations allocation
+         JOIN scoped_appointments appointment ON appointment.id = allocation.appointment_id
+         GROUP BY allocation.item_area_id
+       )
+       SELECT summary.scheduledAppointments, summary.waitlistedAppointments, summary.usedPoints,
+              area_usage.itemAreaId, area_usage.confirmedUsagePoints, area_usage.waitlistUsagePoints
+       FROM summary LEFT JOIN area_usage ON 1 = 1`,
+    ).bind(event.date).all<{ scheduledAppointments: number; waitlistedAppointments: number; usedPoints: number; itemAreaId: number | null; confirmedUsagePoints: number | null; waitlistUsagePoints: number | null }>(),
     getAppointmentsForDate(db, event.date, statusFilter),
   ]);
   if (!effective) throw new Response("Not Found", { status: 404 });
 
-  const usedByArea = new Map(usage.results.map((row) => [row.itemAreaId, row.usedPoints]));
-  const waitlistedByArea = new Map(waitlistUsage.results.map((row) => [row.itemAreaId, row.usedPoints]));
+  const capacityRows = capacityUsage.results;
+  const summary = capacityRows[0];
+  const usedByArea = new Map(capacityRows.filter((row) => row.itemAreaId !== null).map((row) => [row.itemAreaId!, row.confirmedUsagePoints ?? 0]));
+  const waitlistedByArea = new Map(capacityRows.filter((row) => row.itemAreaId !== null).map((row) => [row.itemAreaId!, row.waitlistUsagePoints ?? 0]));
   const usedPoints = summary?.usedPoints ?? 0;
   return {
     id: event.id,

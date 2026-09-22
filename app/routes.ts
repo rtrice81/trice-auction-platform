@@ -20,6 +20,7 @@ export default [
     route("admin/capacity", "routes/admin.capacity.tsx"),
     route("admin/users", "routes/admin.users.tsx"),
     route("admin/users/:id/edit", "routes/admin.users.edit.tsx"),
+    route("admin/users/:id/appointments", "routes/admin.users.appointments.tsx"),
     route("admin/customers/new", "routes/admin.customers.new.tsx"),
     route("admin/appointments", "routes/admin.appointments.tsx"),
     route("admin/appointments/new", "routes/admin.appointments.new.tsx"),

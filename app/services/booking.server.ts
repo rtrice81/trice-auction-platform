@@ -138,6 +138,30 @@ export async function getBookingOptions(db: D1Database, options: { adminScheduli
   };
 }
 
+/** Form metadata used by a fixed-date admin appointment modal. */
+export async function getBookingFormOptions(db: D1Database) {
+  const [dropoffTypesResult, itemAreasResult] = await db.batch([
+    db.prepare(
+      `SELECT id, name, capacity_points AS capacityPoints
+       FROM dropoff_types
+       WHERE active = 1
+       ORDER BY capacity_points ASC, name ASC`,
+    ),
+    db.prepare(
+      `SELECT id, name, measurement_type AS measurementType, physical_capacity AS physicalCapacity,
+              points_per_unit AS pointsPerUnit, normal_capacity_points AS normalCapacityPoints,
+              overflow_allowance_points AS overflowAllowancePoints, display_order AS displayOrder
+       FROM item_areas
+       WHERE active = 1
+       ORDER BY display_order ASC, name ASC`,
+    ),
+  ]);
+  return {
+    dropoffTypes: dropoffTypesResult.results as DropoffType[],
+    itemAreas: itemAreasResult.results as ItemArea[],
+  };
+}
+
 export async function createBooking(db: D1Database, input: BookingInput, options: { allowAdminScheduling?: boolean } = {}): Promise<BookingResult> {
   const validation = await validateBooking(db, input, options);
   if (!validation.ok) return validation;

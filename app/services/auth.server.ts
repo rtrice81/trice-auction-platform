@@ -15,8 +15,11 @@ export type ApplicationUser = { id: number; authUserId: string; email: string; n
 
 type AuthEnvironment = { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
 
-export function getAuth(db: D1Database, authEnv: AuthEnvironment = {}) {
-  if (!authEnv.AUTH_SECRET) throw new Error("AUTH_SECRET must be configured.");
+// Worker isolates serve many requests. Better Auth's configuration is immutable for
+// a binding/secret pair, so keep it for the isolate instead of rebuilding it for
+// every route loader. Session validation and the application-user query still run
+// on every request.
+function createAuth(db: D1Database, authEnv: AuthEnvironment & { AUTH_SECRET: string }) {
   return betterAuth({
     database: db,
     secret: authEnv.AUTH_SECRET,
@@ -24,6 +27,24 @@ export function getAuth(db: D1Database, authEnv: AuthEnvironment = {}) {
     emailAndPassword: { enabled: true },
     advanced: { useSecureCookies: import.meta.env.PROD },
   });
+}
+
+let cachedAuth: ReturnType<typeof createAuth> | undefined;
+let cachedAuthDb: D1Database | undefined;
+let cachedAuthSecret: string | undefined;
+let cachedAuthBaseUrl: string | undefined;
+
+export function getAuth(db: D1Database, authEnv: AuthEnvironment = {}) {
+  if (!authEnv.AUTH_SECRET) throw new Error("AUTH_SECRET must be configured.");
+  if (cachedAuth && cachedAuthDb === db && cachedAuthSecret === authEnv.AUTH_SECRET && cachedAuthBaseUrl === authEnv.BETTER_AUTH_URL) {
+    return cachedAuth;
+  }
+  const auth = createAuth(db, { AUTH_SECRET: authEnv.AUTH_SECRET, BETTER_AUTH_URL: authEnv.BETTER_AUTH_URL });
+  cachedAuth = auth;
+  cachedAuthDb = db;
+  cachedAuthSecret = authEnv.AUTH_SECRET;
+  cachedAuthBaseUrl = authEnv.BETTER_AUTH_URL;
+  return auth;
 }
 
 export async function getCurrentUser(request: Request, db: D1Database, authEnv: AuthEnvironment) {
