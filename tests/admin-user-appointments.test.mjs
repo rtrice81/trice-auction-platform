@@ -13,7 +13,7 @@ test("appointments are routed from a selected admin user and exposed through reu
   assert.match(routes, /admin\/users\/:id\/appointments/);
   assert.match(overview, /<AdminUserSubnav userId=\{user\.id\} activeSection="overview"/);
   assert.match(appointments, /<AdminUserSubnav userId=\{user\.id\} activeSection="appointments"/);
-  assert.match(subnav, /\{ label: "Overview", path: `\/admin\/users\/\$\{userId\}\/edit` \}/);
+  assert.match(subnav, /\{ label: "Overview", path: `\/admin\/users\/\$\{userId\}` \}/);
   assert.match(subnav, /\{ label: "Appointments", path: `\/admin\/users\/\$\{userId\}\/appointments` \}/);
   assert.match(subnav, /aria-current=\{active \? "page" : undefined\}/);
 });

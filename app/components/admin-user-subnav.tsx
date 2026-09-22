@@ -11,7 +11,7 @@ type UserSection = {
  */
 export function AdminUserSubnav({ userId, activeSection }: { userId: number; activeSection: "overview" | "appointments" }) {
   const sections: readonly UserSection[] = [
-    { label: "Overview", path: `/admin/users/${userId}/edit` },
+    { label: "Overview", path: `/admin/users/${userId}` },
     { label: "Appointments", path: `/admin/users/${userId}/appointments` },
   ];
 

@@ -111,7 +111,7 @@ export default function AdminUsers({ loaderData, actionData }: Route.ComponentPr
               {loaderData.users.map((user) => (
                 <tr key={user.id} className={user.active ? "" : "bg-stone-50 text-stone-500"}>
                   <td className="px-4 py-4">
-                    <div className="font-semibold text-stone-950">{user.name}</div>
+                    <Link to={`/admin/users/${user.id}`} className="font-semibold text-stone-950 underline decoration-stone-300 underline-offset-2 hover:text-amber-800">{user.name}</Link>
                     <div>{user.email}</div>
                   </td>
                   <td className="px-4 py-4 text-stone-600">{user.consignorNumber || "—"}</td>
@@ -122,7 +122,7 @@ export default function AdminUsers({ loaderData, actionData }: Route.ComponentPr
                     </span>
                   </td>
                   <td className="px-4 py-4">{user.createdAt}</td>
-                  <td className="px-4 py-4"><Link to={`/admin/users/${user.id}/edit`} className="font-semibold text-amber-800 underline">Edit</Link></td>
+                  <td className="px-4 py-4"><Link to={`/admin/users/${user.id}`} className="font-semibold text-amber-800 underline">View</Link></td>
                 </tr>
               ))}
             </tbody>
