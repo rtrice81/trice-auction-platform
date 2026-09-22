@@ -92,7 +92,7 @@ export default function AdminUsers({ loaderData, actionData }: Route.ComponentPr
             <button className="rounded-lg bg-stone-900 px-4 py-2.5 text-sm font-semibold text-white">Search</button>
             {loaderData.search ? <Link to="/admin/users" className="px-3 py-2.5 text-sm font-semibold text-amber-800">Clear</Link> : null}
           </Form>
-          <Link to="/admin/customers/new" className="shrink-0 rounded-lg bg-amber-700 px-4 py-2.5 text-center text-sm font-semibold text-white hover:bg-amber-800">+ New Customer</Link>
+          <Link to="/admin/customers/new" className="shrink-0 rounded-lg bg-amber-700 px-4 py-2.5 text-center text-sm font-semibold text-white hover:bg-amber-800">+ New User</Link>
         </div>
 
         <div className="overflow-x-auto rounded-2xl border border-stone-200 bg-white shadow-sm">

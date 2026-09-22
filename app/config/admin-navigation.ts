@@ -39,7 +39,7 @@ export const ADMIN_NAVIGATION: readonly AdminNavigationModule[] = [
     displayOrder: 20,
     items: [
       { label: "User Management", path: "/admin/users", module: "Users", group: "Users", allowedRoles: ["admin"], requiredPermission: "user:manage", displayOrder: 10 },
-      { label: "New Customer", path: "/admin/customers/new", module: "Users", group: "Users", allowedRoles: ["admin"], requiredPermission: "user:manage", displayOrder: 20 },
+      { label: "New User", path: "/admin/customers/new", module: "Users", group: "Users", allowedRoles: ["admin"], requiredPermission: "user:manage", displayOrder: 20 },
     ],
   },
   {
