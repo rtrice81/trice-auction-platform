@@ -11,6 +11,7 @@ export type Customer = {
 };
 
 export function customerInputFromForm(form: FormData) {
+  const submittedRoles = form.getAll("roles").map(String);
   return {
     firstName: String(form.get("firstName") ?? "").trim(),
     lastName: String(form.get("lastName") ?? "").trim(),
@@ -19,6 +20,9 @@ export function customerInputFromForm(form: FormData) {
     // This remains text so identifiers such as 001234 retain their leading zeroes.
     consignorNumber: String(form.get("consignorNumber") ?? "").trim(),
     active: form.has("active"),
+    // Inline appointment creation is always for a consignor and predates the
+    // role chooser; preserve that workflow while the user form offers all roles.
+    roles: submittedRoles.length ? submittedRoles : ["consignor"],
     temporaryPassword: String(form.get("temporaryPassword") ?? ""),
   };
 }
@@ -30,6 +34,7 @@ export function validateNewCustomer(input: ReturnType<typeof customerInputFromFo
   if (!/^\S+@\S+\.\S+$/.test(input.email)) errors.push("Enter a valid email address.");
   if (!input.phone) errors.push("Phone number is required.");
   if (input.temporaryPassword.length < 8) errors.push("Temporary password must be at least 8 characters.");
+  if (!input.roles.length || !input.roles.every((role) => ["consignor", "employee", "manager", "admin", "bidder"].includes(role))) errors.push("Choose at least one supported role.");
   return errors;
 }
 
@@ -57,7 +62,9 @@ export async function createCustomerApplicationUser(
     `INSERT INTO users (email, first_name, last_name, phone, consignor_id, role, auth_user_id, active, must_change_password)
      VALUES (?, ?, ?, ?, ?, 'customer', ?, ?, 1)`,
   ).bind(input.email, input.firstName, input.lastName, input.phone, input.consignorNumber || null, authUserId, input.active ? 1 : 0).run();
-  return Number(result.meta.last_row_id);
+  const userId = Number(result.meta.last_row_id);
+  await db.batch([...new Set(input.roles)].map((role) => db.prepare("INSERT INTO user_roles (user_id, role) VALUES (?, ?)").bind(userId, role)));
+  return userId;
 }
 
 type CustomerRow = Omit<Customer, "active"> & { active: number };

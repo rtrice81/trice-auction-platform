@@ -3,7 +3,7 @@ import { data, Link, redirect } from "react-router";
 import { useState } from "react";
 import type { Route } from "./+types/dropoffs.book";
 import { createBooking, getBookingOptions } from "../services/booking.server";
-import { getCurrentUser } from "../services/auth.server";
+import { getCurrentUser, hasRole } from "../services/auth.server";
 import { clearPendingBookingCookie, createPendingBooking, deletePendingBooking, getPendingBooking, getPendingBookingToken, pendingBookingCookie, pendingBookingFromForm } from "../services/pending-booking.server";
 import { bookingSuccessFlashCookie, createBookingSuccessFlash } from "../services/booking-success-flash.server";
 import { createPublicFormStart, verifyPublicFormSubmission } from "../services/public-form-protection.server";
@@ -44,6 +44,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     const token = await createPendingBooking(env.trice_auction_db, pendingBooking, getPendingBookingToken(request));
     return data({ ok: false as const, requiresAuthentication: true, errors: [] as string[], submitted: pendingBooking }, { headers: { "Set-Cookie": pendingBookingCookie(token, request) } });
   }
+  if (!hasRole(user, "consignor")) return data({ ok: false as const, requiresAuthentication: false, errors: ["Your account is not enabled for consignment drop-offs."], submitted: pendingBooking }, { status: 403 });
   const result = await createBooking(env.trice_auction_db, { userId: user.id, ...pendingBooking });
   if (result.ok) {
     await queueAppointmentCreated(env.trice_auction_db, result.appointmentId, env as never, user.email, result.status);

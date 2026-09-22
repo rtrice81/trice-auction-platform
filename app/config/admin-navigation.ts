@@ -1,4 +1,4 @@
-import type { ApplicationUser, Role } from "../services/auth.server";
+import { hasAnyRole, type ApplicationUser, type Role } from "../services/auth.server";
 
 export type AdminNavigationItem = {
   label: string;
@@ -66,7 +66,7 @@ export function getVisibleAdminNavigation(user: ApplicationUser, hasPermission: 
     .map((module) => ({
       ...module,
       items: [...module.items]
-        .filter((item) => (!item.allowedRoles || item.allowedRoles.includes(user.role))
+        .filter((item) => (!item.allowedRoles || hasAnyRole(user, item.allowedRoles))
           && (!item.requiredPermission || hasPermission(user, item.requiredPermission)))
         .sort((left, right) => left.displayOrder - right.displayOrder),
     }))

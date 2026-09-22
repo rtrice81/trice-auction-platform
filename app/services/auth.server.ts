@@ -1,17 +1,18 @@
 import { betterAuth } from "better-auth";
 import { redirect } from "react-router";
+import { hasAnyRole, hasRole, ROLES, type Role } from "../lib/roles";
 
-export const ROLES = ["customer", "employee", "manager", "admin"] as const;
-export type Role = (typeof ROLES)[number];
+export { hasAnyRole, hasRole, ROLES, type Role } from "../lib/roles";
 
 const ROLE_PERMISSIONS = {
-  customer: ["appointment:create", "appointment:read-own", "appointment:edit-own"],
+  consignor: ["appointment:create", "appointment:read-own", "appointment:edit-own"],
   employee: ["appointment:read-scheduled", "appointment:check-in", "appointment:add-notes"],
   manager: ["appointment:modify", "availability:manage", "report:read"],
   admin: ["capacity:manage", "user:manage", "appointment:manage-all", "admin:access"],
+  bidder: [],
 } as const;
 
-export type ApplicationUser = { id: number; authUserId: string; email: string; name: string; role: Role; active: boolean; mustChangePassword: boolean };
+export type ApplicationUser = { id: number; authUserId: string; email: string; name: string; roles: Role[]; active: boolean; mustChangePassword: boolean };
 
 type AuthEnvironment = { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
 
@@ -55,10 +56,12 @@ export async function getCurrentUser(request: Request, db: D1Database, authEnv: 
   const user = await db.prepare(
     `SELECT id, auth_user_id AS authUserId, email,
             COALESCE(NULLIF(TRIM(first_name || ' ' || last_name), ''), email) AS name,
-            role, active, must_change_password AS mustChangePassword
+            active, must_change_password AS mustChangePassword
      FROM users WHERE auth_user_id = ?`,
-  ).bind(session.user.id).first<ApplicationUser>();
-  return user && user.active ? { ...user, mustChangePassword: Boolean(user.mustChangePassword) } : null;
+  ).bind(session.user.id).first<Omit<ApplicationUser, "roles" | "mustChangePassword"> & { mustChangePassword: number }>();
+  if (!user || !user.active) return null;
+  const { results } = await db.prepare("SELECT role FROM user_roles WHERE user_id = ?").bind(user.id).all<{ role: Role }>();
+  return { ...user, roles: results.map(({ role }) => role), mustChangePassword: Boolean(user.mustChangePassword) };
 }
 
 export async function requireUser(request: Request, db: D1Database, authEnv: AuthEnvironment) {
@@ -72,7 +75,7 @@ export async function requireUser(request: Request, db: D1Database, authEnv: Aut
 
 export async function requireAnyRole(request: Request, db: D1Database, authEnv: AuthEnvironment, roles: Role[]) {
   const user = await requireUser(request, db, authEnv);
-  if (!roles.includes(user.role)) throw new Response("Forbidden", { status: 403 });
+  if (!hasAnyRole(user, roles)) throw new Response("Forbidden", { status: 403 });
   return user;
 }
 
@@ -82,9 +85,9 @@ export async function requireRole(request: Request, db: D1Database, authEnv: Aut
 
 export function hasPermission(user: ApplicationUser, permission: string) {
   const inheritedRoles: Record<Role, Role[]> = {
-    customer: ["customer"], employee: ["employee"], manager: ["employee", "manager"], admin: ["customer", "employee", "manager", "admin"],
+    consignor: ["consignor"], employee: ["employee"], manager: ["employee", "manager"], admin: ["employee", "manager", "admin"], bidder: ["bidder"],
   };
-  return inheritedRoles[user.role].some((role) => (ROLE_PERMISSIONS[role] as readonly string[]).includes(permission));
+  return user.roles.flatMap((role) => inheritedRoles[role]).some((role) => (ROLE_PERMISSIONS[role] as readonly string[]).includes(permission));
 }
 
 export function requirePermission(user: ApplicationUser, permission: string) {
@@ -106,5 +109,7 @@ export async function syncApplicationUser(db: D1Database, identity: { id: string
   }
   const names = (identity.name ?? "").trim().split(/\s+/, 2);
   const result = await db.prepare("INSERT INTO users (email, first_name, last_name, phone, role, auth_user_id, active) VALUES (?, ?, ?, ?, 'customer', ?, 1)").bind(identity.email, (identity.firstName ?? names[0]) || null, (identity.lastName ?? names[1]) || null, identity.phone ?? null, identity.id).run();
-  return Number(result.meta.last_row_id);
+  const userId = Number(result.meta.last_row_id);
+  await db.prepare("INSERT OR IGNORE INTO user_roles (user_id, role) VALUES (?, 'consignor')").bind(userId).run();
+  return userId;
 }

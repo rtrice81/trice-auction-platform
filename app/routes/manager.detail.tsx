@@ -5,7 +5,7 @@ import {
   createAppointmentOverrideAuditStatement,
   getAppointmentOverrideHistory,
 } from "../services/appointment-override-audit.server";
-import { requireAnyRole } from "../services/auth.server";
+import { hasAnyRole, requireAnyRole } from "../services/auth.server";
 import { ConfirmationForm } from "../components/confirmation-form";
 import { AreaAllocationFields } from "../components/area-allocation-fields";
 import {
@@ -57,7 +57,7 @@ export async function loader({ request, params }: AppointmentDetailRequestArgs) 
 
 export async function action({ request, params }: AppointmentDetailRequestArgs) {
   const actor = await requireAnyRole(request, env.trice_auction_db, runtime, ["manager", "admin"]);
-  if (actor.role !== "manager" && actor.role !== "admin") {
+  if (!hasAnyRole(actor, ["manager", "admin"])) {
     throw new Response("Forbidden", { status: 403 });
   }
 
@@ -112,7 +112,7 @@ export async function action({ request, params }: AppointmentDetailRequestArgs) 
   const auditStatement = createAppointmentOverrideAuditStatement(env.trice_auction_db, {
     appointmentId,
     actorUserId: actor.id,
-    actorRole: actor.role,
+    actorRole: actor.roles.includes("admin") ? "admin" : "manager",
     reason,
     violatedRules: validation.overridableViolations,
     previousValues: {

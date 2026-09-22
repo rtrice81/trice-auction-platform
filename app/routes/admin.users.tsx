@@ -1,13 +1,8 @@
 import { env } from "cloudflare:workers";
-import { data, Form, Link } from "react-router";
+import { Form, Link } from "react-router";
 import type { Route } from "./+types/admin.users";
 import { requireRole } from "../services/auth.server";
-import {
-  changeManagedUserRole,
-  listManagedUsers,
-  setManagedUserActive,
-  type UserManagementResult,
-} from "../services/user-management.server";
+import { listManagedUsers } from "../services/user-management.server";
 
 const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
 
@@ -24,35 +19,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   return { search, users: await listManagedUsers(env.trice_auction_db, search) };
 }
 
-export async function action({ request }: Route.ActionArgs) {
-  const actor = await requireRole(request, env.trice_auction_db, runtime, "admin");
-  const form = await request.formData();
-  const targetUserId = Number(form.get("targetUserId"));
-  const intent = String(form.get("intent") ?? "");
-
-  let result: UserManagementResult;
-  switch (intent) {
-    case "change-role":
-      result = await changeManagedUserRole(env.trice_auction_db, {
-        actorUserId: actor.id,
-        targetUserId,
-        role: String(form.get("role") ?? ""),
-      });
-      break;
-    case "set-active":
-      result = await setManagedUserActive(env.trice_auction_db, {
-        targetUserId,
-        active: form.get("active") === "true",
-      });
-      break;
-    default:
-      result = { ok: false, errors: ["Unknown user-management action."] };
-  }
-
-  return data(result, { status: result.ok ? 200 : 400 });
-}
-
-export default function AdminUsers({ loaderData, actionData }: Route.ComponentProps) {
+export default function AdminUsers({ loaderData }: Route.ComponentProps) {
   return (
     <main className="min-h-screen bg-stone-50 text-stone-900">
       <div className="mx-auto max-w-6xl px-6 py-12 sm:py-16">
@@ -68,15 +35,6 @@ export default function AdminUsers({ loaderData, actionData }: Route.ComponentPr
           </div>
           <Link to="/" className="text-sm font-semibold text-amber-800">View booking page →</Link>
         </header>
-
-        {actionData?.ok ? <Notice variant="success">{actionData.message}</Notice> : null}
-        {actionData && !actionData.ok ? (
-          <Notice variant="error">
-            <ul className="list-disc space-y-1 pl-5">
-              {actionData.errors.map((error) => <li key={error}>{error}</li>)}
-            </ul>
-          </Notice>
-        ) : null}
 
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end">
           <Form method="get" className="flex flex-1 flex-wrap gap-3">
@@ -101,7 +59,7 @@ export default function AdminUsers({ loaderData, actionData }: Route.ComponentPr
               <tr>
                 <th className="px-4 py-3 font-semibold">User</th>
                 <th className="px-4 py-3 font-semibold">Consignor Number</th>
-                <th className="px-4 py-3 font-semibold">Role</th>
+                <th className="px-4 py-3 font-semibold">Roles</th>
                 <th className="px-4 py-3 font-semibold">Status</th>
                 <th className="px-4 py-3 font-semibold">Created</th>
                 <th className="px-4 py-3 font-semibold">Actions</th>
@@ -115,7 +73,7 @@ export default function AdminUsers({ loaderData, actionData }: Route.ComponentPr
                     <div>{user.email}</div>
                   </td>
                   <td className="px-4 py-4 text-stone-600">{user.consignorNumber || "—"}</td>
-                  <td className="px-4 py-4 capitalize">{user.role}</td>
+                  <td className="px-4 py-4 capitalize">{user.roles.join(", ") || "—"}</td>
                   <td className="px-4 py-4">
                     <span className={user.active ? "font-semibold text-emerald-700" : "font-semibold text-stone-500"}>
                       {user.active ? "Active" : "Inactive"}
@@ -132,11 +90,4 @@ export default function AdminUsers({ loaderData, actionData }: Route.ComponentPr
       </div>
     </main>
   );
-}
-
-function Notice({ variant, children }: { variant: "success" | "error"; children: React.ReactNode }) {
-  const classes = variant === "success"
-    ? "border-emerald-200 bg-emerald-50 text-emerald-950"
-    : "border-red-200 bg-red-50 text-red-950";
-  return <div className={`mb-6 rounded-xl border px-5 py-4 text-sm ${classes}`} role={variant === "success" ? "status" : "alert"}>{children}</div>;
 }

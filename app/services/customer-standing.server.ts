@@ -21,7 +21,7 @@ export async function getCustomerStanding(db: D1Database, customerUserId: number
             COALESCE(NULLIF(TRIM(actor.first_name || ' ' || actor.last_name), ''), actor.email) AS bannedByName
      FROM users customer
      LEFT JOIN users actor ON actor.id = customer.dropoff_banned_by_user_id
-     WHERE customer.id = ? AND customer.role = 'customer'`,
+     WHERE customer.id = ? AND EXISTS (SELECT 1 FROM user_roles WHERE user_id = customer.id AND role = 'consignor')`,
   ).bind(customerUserId).first<Omit<CustomerStanding, "dropoffBanned"> & { dropoffBanned: number }>();
   return row ? { ...row, dropoffBanned: row.dropoffBanned === 1 } : null;
 }
@@ -110,7 +110,7 @@ export async function setCustomerDropoffBan(db: D1Database, input: { customerUse
     `UPDATE users
      SET dropoff_banned = 1, dropoff_ban_reason = ?, dropoff_banned_at = CURRENT_TIMESTAMP,
          dropoff_banned_by_user_id = ?
-     WHERE id = ? AND role = 'customer'`,
+     WHERE id = ? AND EXISTS (SELECT 1 FROM user_roles WHERE user_id = users.id AND role = 'consignor')`,
   ).bind(reason, input.actor.id, input.customerUserId).run();
   return result.meta.changes === 1
     ? { ok: true as const, message: "Customer is now banned from scheduling drop-offs." }
@@ -122,7 +122,7 @@ export async function removeCustomerDropoffBan(db: D1Database, customerUserId: n
     `UPDATE users
      SET dropoff_banned = 0, dropoff_ban_reason = NULL, dropoff_banned_at = NULL,
          dropoff_banned_by_user_id = NULL
-     WHERE id = ? AND role = 'customer'`,
+     WHERE id = ? AND EXISTS (SELECT 1 FROM user_roles WHERE user_id = users.id AND role = 'consignor')`,
   ).bind(customerUserId).run();
   return result.meta.changes === 1
     ? { ok: true as const, message: "Customer may schedule drop-offs again." }
