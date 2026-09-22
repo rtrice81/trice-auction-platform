@@ -23,7 +23,10 @@ test("the user detail is admin-only, read-only, and retains appointment access",
   assert.match(detail, /Edit User/);
   assert.match(detail, /\/admin\/users\/\$\{user\.id\}\/edit/);
   assert.doesNotMatch(detail, /<Form|<input|<textarea|<select/);
-  assert.doesNotMatch(detail, /Drop-Off Status|Internal Notes/);
+  assert.match(detail, /Drop-Off Status/);
+  assert.match(detail, /Internal Notes/);
+  assert.match(detail, /getCustomerStanding\(env\.trice_auction_db, user\.id\)/);
+  assert.match(detail, /getCustomerPrivateNotes\(env\.trice_auction_db, user\.id\)/);
   assert.doesNotMatch(edit, /Drop-Off Status|Internal Notes|add-private-note|ban-customer|unban-customer/);
 });
 
