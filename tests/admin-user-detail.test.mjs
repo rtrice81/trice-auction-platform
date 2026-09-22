@@ -23,6 +23,8 @@ test("the user detail is admin-only, read-only, and retains appointment access",
   assert.match(detail, /Edit User/);
   assert.match(detail, /\/admin\/users\/\$\{user\.id\}\/edit/);
   assert.doesNotMatch(detail, /<Form|<input|<textarea|<select/);
+  assert.doesNotMatch(detail, /Drop-Off Status|Internal Notes/);
+  assert.doesNotMatch(edit, /Drop-Off Status|Internal Notes|add-private-note|ban-customer|unban-customer/);
 });
 
 test("editing remains isolated to the existing edit route", () => {
