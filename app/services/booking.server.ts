@@ -1,6 +1,7 @@
 import { getEffectiveDateCapacity, type EffectiveDateCapacity } from "./date-capacity.server";
 import { getBookableBookingEventForDate } from "./booking-event.server";
 import { bookingEventInstant } from "../lib/booking-event-time";
+import { ensureUserRole } from "./user-roles.server";
 
 export type ItemArea = {
   id: number;
@@ -224,6 +225,10 @@ export async function createBooking(db: D1Database, input: BookingInput, options
     ),
   );
 
+  // Appointment ownership confers consignor capability, while retaining every
+  // existing staff/admin/bidder membership.
+  await ensureUserRole(db, input.userId, "consignor");
+
   return {
     ok: true,
     appointmentId: appointment.id,
@@ -250,6 +255,7 @@ export async function createBookingWithOverride(
     `INSERT INTO appointment_area_allocations (appointment_id, item_area_id, allocation_percent, capacity_points)
      VALUES (?, ?, ?, ?)`,
   ).bind(appointment.id, allocation.itemAreaId, allocation.percentage, calculateAllocatedPoints(dropoffType.capacityPoints, allocation.percentage))));
+  await ensureUserRole(db, input.userId, "consignor");
   return appointment.id;
 }
 
