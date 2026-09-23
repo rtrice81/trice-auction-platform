@@ -38,9 +38,21 @@ test("staff tools on the detail page reuse the existing server-side status and a
   assert.match(detail, /Save Status: Ban Drop-Offs/);
   assert.match(detail, /Save Status: Allow Drop-Offs/);
   assert.match(detail, /Add Note/);
-  assert.match(detail, /Drop-off restrictions are available for customer\/consignor accounts only\./);
-  assert.match(detail, /Internal customer notes are available for customer\/consignor accounts only\./);
+  assert.match(detail, /hasRole\(user, "consignor"\)/);
+  assert.match(detail, /\{isConsignor \? <DropOffStatusTools standing=\{standing\}\/> : null\}/);
+  assert.match(detail, /Drop-off status is only available for consignors\./);
+  assert.match(detail, /Staff-only\. Not visible to the user\./);
   assert.match(detail, /actionData\?\.ok/);
+});
+
+test("Drop-Off Status is restricted to consignors while Internal Notes remain available to every user", () => {
+  assert.match(detail, /hasRole\(user, "consignor"\)/);
+  assert.match(detail, /isConsignor \? <DropOffStatusTools/);
+  assert.doesNotMatch(detail, /<DropOffStatusTools isCustomer/);
+  assert.match(detail, /getCustomerPrivateNotes\(env\.trice_auction_db, user\.id\)/);
+  assert.match(detail, /<InternalNotesTools privateNotes=\{privateNotes\}\/>/);
+  assert.match(detail, /intent === "ban-customer" \|\| intent === "unban-customer"/);
+  assert.match(detail, /status: 403/);
 });
 
 test("editing remains isolated to the existing edit route", () => {

@@ -132,8 +132,8 @@ export async function removeCustomerDropoffBan(db: D1Database, customerUserId: n
 export async function addCustomerPrivateNote(db: D1Database, input: { customerUserId: number; actor: ApplicationUser; noteText: string }) {
   const noteText = input.noteText.trim();
   if (!noteText) return { ok: false as const, errors: ["Enter a private note before saving."] };
-  const customer = await getCustomerStanding(db, input.customerUserId);
-  if (!customer) return { ok: false as const, errors: ["Customer was not found."] };
+  const user = await db.prepare("SELECT id FROM users WHERE id = ?").bind(input.customerUserId).first<{ id: number }>();
+  if (!user) return { ok: false as const, errors: ["User was not found."] };
   await db.prepare(
     "INSERT INTO customer_private_notes (customer_user_id, author_user_id, note_text) VALUES (?, ?, ?)",
   ).bind(input.customerUserId, input.actor.id, noteText).run();
