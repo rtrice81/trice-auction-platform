@@ -90,6 +90,15 @@ test("new inline customer is selected automatically and appointment fields remai
   assert.ok(appointmentModal.indexOf("showNewCustomer ? <InlineCustomerForm") < appointmentModal.indexOf("selectedCustomer ? <appointmentFetcher.Form"));
 });
 
+test("a successful modal appointment save resets customer selection and search state without clearing validation errors", () => {
+  assert.match(appointmentModal, /const resetCustomerState = \(\) => \{\s*setSelectedCustomer\(null\);\s*setSearchText\(""\);\s*setShowNewCustomer\(false\);\s*handledCustomerIdRef\.current = null;/s);
+  assert.match(appointmentModal, /if \(!open \|\| !hasSubmitted \|\| appointmentFetcher\.state !== "idle" \|\| !appointmentFetcher\.data\?\.ok\) return;/);
+  assert.match(appointmentModal, /onCreated\(appointmentFetcher\.data\.message \?\? "Appointment created\."\);\s*closeModal\(\);/s);
+  assert.match(appointmentModal, /const customers = searchText \? searchFetcher\.data\?\.customers \?\? \[\] : \[\];/);
+  assert.match(appointmentModal, /name="q" value=\{searchText\} onChange=\{\(event\) => setSearchText\(event\.target\.value\)\}/);
+  assert.match(appointmentModal, /<input type="hidden" name="customerId" value=\{selectedCustomer\.id\}/);
+});
+
 test("inline customer creation is admin-only, validates server-side, and safely handles duplicates", () => {
   assert.match(appointmentRoute, /requireRole\(request, env\.trice_auction_db, runtime, "admin"\)/);
   assert.match(appointmentRoute, /form\.get\("intent"\) === "create-customer"/);
