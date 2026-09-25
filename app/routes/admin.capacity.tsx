@@ -117,7 +117,7 @@ export default function AdminCapacity({ loaderData, actionData }: Route.Componen
                 step={0.01}
                 hint="Capacity points assigned when a new drop-off day is created."
               />
-              <NumberField label="Default reservation hold time" name="defaultBookingHoldDurationMinutes" value={loaderData.defaultBookingHoldDurationMinutes} min={5} step={1} hint="Minutes capacity is reserved when a date has no Booking Event setting or override." />
+              <label className="block text-sm font-semibold text-stone-800">Default reservation hold time<select name="defaultBookingHoldDurationMinutes" defaultValue={loaderData.defaultBookingHoldDurationMinutes} className="mt-2 block w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal outline-none focus:border-amber-600 focus:ring-2 focus:ring-amber-100"><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option><option value="20">20 minutes</option><option value="30">30 minutes</option><option value="60">60 minutes</option></select><span className="mt-1 block text-xs font-normal leading-5 text-stone-500">Used when a Drop-Off Date has neither an override nor a Booking Event setting.</span></label>
               <NumberField
                 label="Monthly booking limit per consignor"
                 name="monthlyBookingLimit"

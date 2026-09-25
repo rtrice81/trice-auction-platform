@@ -1,3 +1,5 @@
+import { isBookingHoldDurationOption } from "../lib/booking-hold-duration";
+
 export type AdminDropoffType = {
   id: number;
   name: string;
@@ -120,7 +122,7 @@ export async function saveGeneralSettings(
   if (!isPositiveInteger(input.monthlyBookingLimit)) {
     errors.push("Monthly booking limit must be a whole number of at least 1.");
   }
-  if (!Number.isInteger(input.defaultBookingHoldDurationMinutes) || input.defaultBookingHoldDurationMinutes < 5 || input.defaultBookingHoldDurationMinutes > 60) errors.push("Default reservation hold time must be between 5 and 60 minutes.");
+  if (!isBookingHoldDurationOption(input.defaultBookingHoldDurationMinutes)) errors.push("Choose one of the supported default reservation hold times.");
   if (errors.length > 0) return { ok: false, errors };
 
   await db.batch([
