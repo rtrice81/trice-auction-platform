@@ -19,7 +19,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   const now = new Date();
   const user = await getCurrentUser(request, env.trice_auction_db, runtime);
   const [pendingBooking, hold] = await Promise.all([user ? getPendingBooking(env.trice_auction_db, getPendingBookingToken(request)) : null, getBookingHold(env.trice_auction_db, getBookingAttemptId(request))]);
-  if (pendingBooking || hold) {
+  // A stored hold must survive navigation, but it must not trap a customer on
+  // one date. Only the explicit authentication-resume path returns them to it.
+  if ((pendingBooking || hold) && new URL(request.url).searchParams.get("resume") === "1") {
     const selected = await getCustomerDropoffDateForDate(env.trice_auction_db, (hold ?? pendingBooking)!.appointmentDate);
     if (selected) return redirect(`/dropoffs/${selected.date.eventId}/book?resume=1`);
   }
