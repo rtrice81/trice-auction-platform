@@ -86,6 +86,9 @@ export async function queueInternalAppointmentActivity(db: D1Database, input: { 
   if (!current) return;
   const subscription = input.event === "created" ? "receive_created" : input.event === "updated" ? "receive_updated" : "receive_cancelled";
   const { results } = await db.prepare(`SELECT label,email FROM appointment_notification_recipients WHERE active=1 AND ${subscription}=1`).all<{ label: string; email: string }>();
+  // D1 rejects an empty batch. Having no internal recipients is a valid
+  // configuration and must never turn a completed booking into a 500 response.
+  if (results.length === 0) return;
   const eventVersion = `${current.version}:${input.event}:${JSON.stringify(input.previous ?? null)}`;
   const payload = { event: input.event, current, previous: input.previous ?? null, actorName: input.actorName || null, occurredAt: new Date().toISOString() };
   await db.batch(results.map((recipient) => db.prepare(`INSERT INTO notification_jobs(idempotency_key,appointment_id,notification_type,channel,recipient,payload_json,scheduled_at)
@@ -105,6 +108,7 @@ export async function queueInternalUserRegistration(db: D1Database, userId: numb
   if (!user) return;
   const { results } = await db.prepare(`SELECT label,email FROM appointment_notification_recipients
     WHERE active=1 AND receive_registration=1`).all<{ label: string; email: string }>();
+  if (results.length === 0) return;
   const occurredAt = new Date().toISOString();
   await db.batch(results.map((recipient) => db.prepare(`INSERT INTO notification_jobs(idempotency_key,user_id,notification_type,channel,recipient,payload_json,scheduled_at)
     VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(idempotency_key) DO NOTHING`).bind(

@@ -13,6 +13,10 @@ test("internal recipients are active, event-subscribed, and idempotently queued"
   assert.match(service, /internal:\$\{input\.appointmentId\}:\$\{input\.event\}:\$\{recipient\.email\}:\$\{eventVersion\}/);
 });
 
+test("empty internal recipient lists are a safe notification no-op", () => {
+  assert.match(service, /if \(results\.length === 0\) return/);
+});
+
 test("internal delivery uses the existing outbox and avoids private notes", () => {
   assert.match(delivery, /job\.notification_type\.startsWith\("internal_"\)/);
   assert.match(delivery, /Review appointment: \$\{detail\}/);
