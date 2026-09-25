@@ -13,9 +13,9 @@ test("schedule status filters retain scroll position while preserving their quer
   assert.match(schedule, /scheduleUrl\(loaderData\.view, "public"\)\} preventScrollReset/);
 });
 
-test("schedule archive tabs retain date detail access and its existing admin history features", () => {
+test("schedule Past tabs retain date detail access and its existing admin history features", () => {
   assert.match(schedule, /Drop-Off Event views/);
-  assert.match(schedule, /Archived<\/Link>/);
+  assert.match(schedule, /Past<\/Link>/);
   assert.match(schedule, /to=\{`\/admin\/schedule\/\$\{event\.id\}`\}/);
   assert.match(scheduleDetail, /<AppointmentSummaryList appointments=\{event\.appointments\}/);
   assert.match(scheduleDetail, /<StorageCapacitySummary areas=\{event\.areas\}/);
