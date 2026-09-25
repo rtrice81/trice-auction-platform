@@ -17,6 +17,7 @@ export type DropoffEventInput = {
   visibility: "public" | "private";
   isOpen: boolean;
   dailyCapacityPoints: number;
+  holdDurationMinutesOverride: number | null;
   note: string;
   areas: EventAreaInput[];
 };
@@ -59,6 +60,7 @@ export type DropoffEvent = {
   isOpen: boolean;
   note: string | null;
   dailyCapacityPoints: number;
+  holdDurationMinutesOverride: number | null;
   scheduledAppointments: number;
   waitlistedAppointments: number;
   usedPoints: number;
@@ -78,6 +80,7 @@ export function dropoffEventInputFromForm(form: FormData): DropoffEventInput {
     visibility: form.get("visibility") === "public" ? "public" : "private",
     isOpen: form.get("isOpen") === "true",
     dailyCapacityPoints: Number(form.get("dailyCapacityPoints")),
+    holdDurationMinutesOverride: String(form.get("holdDurationMinutesOverride") ?? "") === "" ? null : Number(form.get("holdDurationMinutesOverride")),
     note: String(form.get("note") ?? ""),
     areas: areaIds.map((itemAreaId) => ({
       itemAreaId,
@@ -132,8 +135,8 @@ export async function createDropoffEvent(db: D1Database, input: DropoffEventInpu
   const event = await db
     .prepare(
       `INSERT INTO dropoff_days (
-        dropoff_date, event_name, description, visibility, capacity_points, daily_capacity_override, is_open, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        dropoff_date, event_name, description, visibility, capacity_points, daily_capacity_override, is_open, notes, hold_duration_minutes_override
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       RETURNING id`,
     )
     .bind(
@@ -145,6 +148,7 @@ export async function createDropoffEvent(db: D1Database, input: DropoffEventInpu
       input.dailyCapacityPoints,
       input.isOpen ? 1 : 0,
       input.note.trim() || null,
+      input.holdDurationMinutesOverride,
     )
     .first<{ id: number }>();
   if (!event) return { ok: false, errors: ["The Drop-Off Event could not be saved."] };
@@ -182,7 +186,7 @@ export async function updateDropoffEvent(
     db
       .prepare(
         `UPDATE dropoff_days
-         SET event_name = ?, description = ?, visibility = ?, capacity_points = ?, daily_capacity_override = ?, is_open = ?, notes = ?
+         SET event_name = ?, description = ?, visibility = ?, capacity_points = ?, daily_capacity_override = ?, is_open = ?, notes = ?, hold_duration_minutes_override = ?
          WHERE id = ?`,
       )
       .bind(
@@ -193,6 +197,7 @@ export async function updateDropoffEvent(
         input.dailyCapacityPoints,
         input.isOpen ? 1 : 0,
         input.note.trim() || null,
+        input.holdDurationMinutesOverride,
         eventId,
       ),
     ...input.areas.map((area) =>
@@ -245,11 +250,11 @@ async function getDropoffEvent(
 ): Promise<DropoffEvent> {
   const event = await db
     .prepare(
-      `SELECT id, dropoff_date AS date, event_name AS eventName, description, visibility, is_open AS isOpen, notes
+      `SELECT id, dropoff_date AS date, event_name AS eventName, description, visibility, is_open AS isOpen, notes, hold_duration_minutes_override AS holdDurationMinutesOverride
        FROM dropoff_days WHERE id = ?`,
     )
     .bind(eventId)
-    .first<{ id: number; date: string; eventName: string | null; description: string | null; visibility: "public" | "private"; isOpen: number; notes: string | null }>();
+    .first<{ id: number; date: string; eventName: string | null; description: string | null; visibility: "public" | "private"; isOpen: number; notes: string | null; holdDurationMinutesOverride: number | null }>();
   if (!event) throw new Response("Not Found", { status: 404 });
 
   const [effective, capacityUsage, appointments] = await Promise.all([
@@ -295,6 +300,7 @@ async function getDropoffEvent(
     visibility: event.visibility,
     isOpen: event.isOpen === 1,
     note: event.notes,
+    holdDurationMinutesOverride: event.holdDurationMinutesOverride,
     dailyCapacityPoints: effective.dailyCapacityPoints,
     scheduledAppointments: summary?.scheduledAppointments ?? 0,
     waitlistedAppointments: summary?.waitlistedAppointments ?? 0,
@@ -337,6 +343,7 @@ async function validateEventInput(db: D1Database, input: DropoffEventInput, isNe
   if (!isIsoDate(input.date)) errors.push("Choose a valid drop-off date.");
   if (isNew && input.date < today()) errors.push("New Drop-Off Events must be today or later.");
   if (!Number.isFinite(input.dailyCapacityPoints) || input.dailyCapacityPoints < 0) errors.push("Daily intake capacity must be non-negative.");
+  if (input.holdDurationMinutesOverride !== null && (!Number.isInteger(input.holdDurationMinutesOverride) || input.holdDurationMinutesOverride < 5 || input.holdDurationMinutesOverride > 60)) errors.push("Reservation Hold Time must be between 5 and 60 minutes.");
   const areas = await getAreaDefaults(db);
   const validAreaIds = new Set(areas.map((area) => area.id));
   const submittedIds = new Set(input.areas.map((area) => area.itemAreaId));

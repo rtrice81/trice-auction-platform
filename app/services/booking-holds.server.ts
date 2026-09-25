@@ -1,8 +1,9 @@
 import { type BookingInput, type CapacityContext, validateBooking } from "./booking.server";
 import { ensureUserRole } from "./user-roles.server";
+import { DEFAULT_BOOKING_HOLD_DURATION_MINUTES, getBookingHoldDuration } from "./booking-hold-duration.server";
 
 /** One authoritative place for the public reservation window. */
-export const BOOKING_HOLD_MINUTES = 15;
+export const BOOKING_HOLD_MINUTES = DEFAULT_BOOKING_HOLD_DURATION_MINUTES;
 
 export type BookingHold = { id: string; bookingAttemptId: string; holdToken: string; expiresAt: string; appointmentDate: string; dropoffTypeId: number; allocations: BookingInput["allocations"]; status: string };
 
@@ -23,6 +24,7 @@ export async function reserveBookingHold(db: D1Database, input: BookingInput, bo
   }
   const day = await db.prepare("SELECT id FROM dropoff_days WHERE dropoff_date = ?").bind(input.appointmentDate).first<{ id: number }>();
   if (!day) return { ok: false as const, errors: ["This drop-off date is no longer available."] };
+  const holdDurationMinutes = await getBookingHoldDuration(db, day.id);
   const requested = new Map(validation.capacityContext.areas.map((area) => [area.name, area.requestedPoints]));
   const values = {
     daily: validation.dropoffType.capacityPoints,
@@ -35,7 +37,8 @@ export async function reserveBookingHold(db: D1Database, input: BookingInput, bo
   const capacity = validation.capacityContext;
   const condition = atomicCapacityCondition(id, day.id, values, capacity);
   const allocationJson = JSON.stringify(input.allocations);
-  const expires = `datetime('now', '+${BOOKING_HOLD_MINUTES} minutes')`;
+  // Calculated once at claim time; later configuration changes do not affect it.
+  const expires = `datetime('now', '+${holdDurationMinutes} minutes')`;
 
   if (existing) {
     const updated = await db.prepare(

@@ -8,7 +8,7 @@ const migration = await readFile(new URL("../migrations/0033_add_booking_holds.s
 const form = await readFile(new URL("../app/components/customer-booking-form.tsx", import.meta.url), "utf8");
 
 test("booking holds are short-lived, opaque, and idempotent per booking attempt", () => {
-  assert.match(holds, /BOOKING_HOLD_MINUTES = 15/);
+  assert.match(holds, /BOOKING_HOLD_MINUTES = DEFAULT_BOOKING_HOLD_DURATION_MINUTES/);
   assert.match(migration, /booking_attempt_id TEXT NOT NULL UNIQUE/);
   assert.match(migration, /hold_token TEXT NOT NULL UNIQUE/);
   assert.match(holds, /sameRequest\(existing, input\)/);
