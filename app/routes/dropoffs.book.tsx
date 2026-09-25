@@ -40,7 +40,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   if (!selected || !selected.date.bookable) return data({ ok: false as const, requiresAuthentication: false, errors: ["This drop-off date is not currently available for signup."] }, { status: 400 });
   const formData = await request.formData();
   const pendingBooking = { ...pendingBookingFromForm(formData), appointmentDate: selected.date.eventDate };
-  const attemptId = getBookingAttemptId(request) ?? createBookingAttemptId();
+  let attemptId = getBookingAttemptId(request) ?? createBookingAttemptId();
   const user = await getCurrentUser(request, env.trice_auction_db, runtime);
   if (formData.get("intent") === "reserve") {
     if (!hasBasicPublicBookingFields(pendingBooking)) return data({ ok: false as const, requiresAuthentication: false, errors: ["Allocations must total exactly 100% before space can be reserved."], submitted: pendingBooking }, { status: 400 });
@@ -48,6 +48,10 @@ export async function action({ request, params }: Route.ActionArgs) {
     const protection = await verifyPublicFormSubmission({ request, formData, form: "public-booking", runtime, db: env.trice_auction_db, rateLimit: { maximumAttempts: 12, windowSeconds: 600 } });
     if (!protection.ok) return data({ ok: false as const, requiresAuthentication: false, errors: [protection.error], submitted: pendingBooking }, { status: 400 });
     }
+    // A completed appointment is permanently linked to its converted hold. A
+    // fresh booking from the same browser must use a new attempt, rather than
+    // colliding with that completed hold's unique booking_attempt_id.
+    if ((await getBookingHold(env.trice_auction_db, attemptId))?.status === "converted") attemptId = createBookingAttemptId();
     const result = await reserveBookingHold(env.trice_auction_db, { userId: user?.id ?? 0, ...pendingBooking }, attemptId, user?.id ?? null);
     const headers = new Headers(); headers.append("Set-Cookie", bookingAttemptCookie(attemptId, request));
     return data({ ...result, requiresAuthentication: result.ok && !user, submitted: pendingBooking }, { status: result.ok ? 200 : 409, headers });
@@ -57,7 +61,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   if (result.ok) {
     await queueAppointmentCreated(env.trice_auction_db, result.appointmentId, env as never, user.email, "scheduled");
     const flashToken = await createBookingSuccessFlash(env.trice_auction_db, user.id, result.appointmentId);
-    const headers = new Headers(); headers.append("Set-Cookie", bookingSuccessFlashCookie(flashToken, request));
+    const headers = new Headers(); headers.append("Set-Cookie", bookingSuccessFlashCookie(flashToken, request)); headers.append("Set-Cookie", bookingAttemptCookie(createBookingAttemptId(), request));
     return redirect("/my-appointments", { headers });
   }
   return data({ ...result, submitted: pendingBooking }, { status: 400 });

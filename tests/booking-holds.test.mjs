@@ -6,6 +6,7 @@ const holds = await readFile(new URL("../app/services/booking-holds.server.ts", 
 const booking = await readFile(new URL("../app/services/booking.server.ts", import.meta.url), "utf8");
 const migration = await readFile(new URL("../migrations/0033_add_booking_holds.sql", import.meta.url), "utf8");
 const form = await readFile(new URL("../app/components/customer-booking-form.tsx", import.meta.url), "utf8");
+const bookingRoute = await readFile(new URL("../app/routes/dropoffs.book.tsx", import.meta.url), "utf8");
 
 test("booking holds are short-lived, opaque, and idempotent per booking attempt", () => {
   assert.match(holds, /BOOKING_HOLD_MINUTES = DEFAULT_BOOKING_HOLD_DURATION_MINUTES/);
@@ -27,6 +28,12 @@ test("final conversion is transactional and a converted hold is not double count
   assert.match(holds, /booking_hold_id/);
   assert.match(holds, /status='converted'/);
   assert.match(holds, /ensureUserRole\(db, userId, "consignor"\)/);
+});
+
+test("a completed booking attempt cannot block a later booking from the same browser", () => {
+  assert.match(bookingRoute, /getBookingHold\(env\.trice_auction_db, attemptId\)\)\?\.status === "converted"/);
+  assert.match(bookingRoute, /attemptId = createBookingAttemptId\(\)/);
+  assert.match(bookingRoute, /bookingAttemptCookie\(createBookingAttemptId\(\), request\)/);
 });
 
 test("the customer cannot reserve until their intentional allocations total 100", () => {
