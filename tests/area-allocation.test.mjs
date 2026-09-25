@@ -10,18 +10,20 @@ const adminForm = await readFile(new URL("../app/routes/admin.appointments.new.t
 const adminAppointmentFields = await readFile(new URL("../app/components/admin-appointment-fields.tsx", import.meta.url), "utf8");
 const managerForm = await readFile(new URL("../app/routes/manager.detail.tsx", import.meta.url), "utf8");
 
-test("Large/Furniture is derived server-side and submitted Large values are ignored", () => {
-  assert.match(bookingService, /export function deriveLargeFurnitureAllocation/);
-  assert.match(bookingService, /100 - smallsPercentage - outdoorPercentage/);
-  assert.match(bookingService, /Never use a submitted Large\/Furniture value/);
-  assert.match(bookingService, /Smalls and Outdoor percentages cannot exceed 100% combined/);
+test("all item-area allocations are deliberate and must total exactly 100%", () => {
+  assert.doesNotMatch(bookingService, /deriveLargeFurnitureAllocation/);
+  assert.match(bookingService, /Item-area allocations must total exactly 100%/);
+  assert.match(allocationFields, /\?\.percentage \?\? 0/);
+  assert.match(allocationFields, /name=\{`allocation-\$\{area\.id\}`\}/);
+  assert.match(allocationFields, /Total allocated:/);
 });
 
-test("all appointment allocation editors use the shared derived allocation fields", () => {
+test("all appointment allocation editors use editable shared allocation fields", () => {
   for (const source of [customerForm, appointmentEdit, adminAppointmentFields, managerForm]) {
     assert.match(source, /AreaAllocationFields/);
   }
   assert.match(adminForm, /AdminAppointmentFields/);
-  assert.match(allocationFields, /readOnly=\{isLarge\}/);
-  assert.match(allocationFields, /name=\{isLarge \? undefined : `allocation-\$\{area\.id\}`\}/);
+  assert.doesNotMatch(allocationFields, /readOnly=/);
+  assert.match(customerForm, /Reserve My Space/);
+  assert.match(customerForm, /total !== 100/);
 });

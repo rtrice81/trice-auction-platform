@@ -5,7 +5,8 @@ import type { Route } from "./+types/register";
 import { getAuth, syncApplicationUser } from "../services/auth.server";
 import { queueInternalUserRegistration } from "../services/internal-appointment-notifications.server";
 import { processDueNotificationJobs } from "../services/notification.server";
-import { getPendingBookingToken } from "../services/pending-booking.server";
+import { getBookingAttemptId, getPendingBookingToken } from "../services/pending-booking.server";
+import { associateBookingHoldUser } from "../services/booking-holds.server";
 import { createPublicFormStart, verifyPublicFormSubmission } from "../services/public-form-protection.server";
 import { PublicFormProtection } from "../components/public-form-protection";
 import { normalizePhoneNumber, registrationInputFromForm, validateRegistrationInput } from "../lib/registration-validation";
@@ -26,13 +27,14 @@ export async function action({ request }: Route.ActionArgs) {
   if (!response.ok) return data({ error: "Registration could not be completed." }, { status: 400 });
   const payload = await response.json() as { user: { id: string; email: string; name?: string } };
   const userId = await syncApplicationUser(env.trice_auction_db, { ...payload.user, firstName: input.firstName, lastName: input.lastName, phone: normalizePhoneNumber(input.phone) });
+  await associateBookingHoldUser(env.trice_auction_db, getBookingAttemptId(request), userId);
   try {
     await queueInternalUserRegistration(env.trice_auction_db, userId);
     await processDueNotificationJobs(env.trice_auction_db, { ...runtime, APP_BASE_URL: runtime.APP_BASE_URL || new URL(request.url).origin });
   } catch (error) {
     console.error("New user registration notification failed", { userId, errorType: error instanceof Error ? error.name : "UnknownError" });
   }
-  return redirect(getPendingBookingToken(request) ? "/?resume=1" : "/", { headers: response.headers });
+  return redirect(getPendingBookingToken(request) || getBookingAttemptId(request) ? "/?resume=1" : "/", { headers: response.headers });
 }
 export default function Register({ loaderData, actionData }: Route.ComponentProps) {
   const [turnstileVerified, setTurnstileVerified] = useState(false);

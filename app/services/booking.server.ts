@@ -262,7 +262,7 @@ export async function createBookingWithOverride(
 export async function validateBooking(
   db: D1Database,
   input: BookingInput,
-  validationOptions: { allowAdminScheduling?: boolean } = {},
+  validationOptions: { allowAdminScheduling?: boolean; excludedHoldId?: string } = {},
 ): Promise<BookingValidationResult> {
   const inputErrors = validateInput(input);
   if (inputErrors.length > 0) return validationFailure(inputErrors, input.allocations);
@@ -280,7 +280,7 @@ export async function validateBooking(
   const dropoffType = options.dropoffTypes.find((type) => type.id === input.dropoffTypeId);
   if (!dropoffType) return validationFailure(["Choose an available load type."], input.allocations);
 
-  const allocations = deriveLargeFurnitureAllocation(input.allocations, options.itemAreas);
+  const allocations = input.allocations;
   const allocationErrors = validateAllocations(allocations, options.itemAreas);
   if (allocationErrors.length > 0) return validationFailure(allocationErrors, allocations);
 
@@ -330,6 +330,7 @@ export async function validateBooking(
     effectiveCapacity,
     input.appointmentId,
     validationOptions.allowAdminScheduling === true,
+    validationOptions.excludedHoldId,
   );
   const capacityContext: CapacityContext = {
     monthly: {
@@ -467,24 +468,6 @@ function validateInput(input: BookingInput) {
   return errors;
 }
 
-export function deriveLargeFurnitureAllocation(allocations: BookingInput["allocations"], itemAreas: ItemArea[]) {
-  const smalls = itemAreas.find((area) => area.name === "Smalls");
-  const outdoor = itemAreas.find((area) => area.name === "Outdoor");
-  const large = itemAreas.find((area) => area.name === "Large/Furniture");
-  if (!smalls || !outdoor || !large) return allocations;
-
-  const submittedById = new Map(allocations.map((allocation) => [allocation.itemAreaId, allocation.percentage]));
-  const smallsPercentage = submittedById.get(smalls.id) ?? Number.NaN;
-  const outdoorPercentage = submittedById.get(outdoor.id) ?? Number.NaN;
-  // Never use a submitted Large/Furniture value: it is always the remaining percentage.
-  return [
-    ...allocations.filter((allocation) => ![smalls.id, outdoor.id, large.id].includes(allocation.itemAreaId)),
-    { itemAreaId: smalls.id, percentage: smallsPercentage },
-    { itemAreaId: large.id, percentage: 100 - smallsPercentage - outdoorPercentage },
-    { itemAreaId: outdoor.id, percentage: outdoorPercentage },
-  ];
-}
-
 function validateAllocations(allocations: BookingInput["allocations"], itemAreas: ItemArea[]) {
   const errors: string[] = [];
   const submittedIds = new Set(allocations.map((allocation) => allocation.itemAreaId));
@@ -503,17 +486,7 @@ function validateAllocations(allocations: BookingInput["allocations"], itemAreas
   ) {
     errors.push("Each item-area allocation must be a whole percentage from 0 to 100.");
   }
-  const smalls = itemAreas.find((area) => area.name === "Smalls");
-  const outdoor = itemAreas.find((area) => area.name === "Outdoor");
-  const large = itemAreas.find((area) => area.name === "Large/Furniture");
-  const usesDerivedLarge = Boolean(smalls && outdoor && large);
-  if (usesDerivedLarge) {
-    const smallsPercentage = allocations.find((allocation) => allocation.itemAreaId === smalls!.id)?.percentage ?? Number.NaN;
-    const outdoorPercentage = allocations.find((allocation) => allocation.itemAreaId === outdoor!.id)?.percentage ?? Number.NaN;
-    if (Number.isFinite(smallsPercentage) && Number.isFinite(outdoorPercentage) && smallsPercentage + outdoorPercentage > 100) {
-      errors.push("Smalls and Outdoor percentages cannot exceed 100% combined.");
-    }
-  } else if (allocations.reduce((total, allocation) => total + allocation.percentage, 0) !== 100) {
+  if (allocations.reduce((total, allocation) => total + allocation.percentage, 0) !== 100) {
     errors.push("Item-area allocations must total exactly 100%.");
   }
   return errors;
@@ -554,6 +527,7 @@ async function getCapacityEvaluation(
   effectiveCapacity: EffectiveDateCapacity,
   excludedAppointmentId?: number,
   allowClosedDate = false,
+  excludedHoldId?: string,
 ) {
   if (!effectiveCapacity.isOpen && !allowClosedDate) {
     return {
@@ -580,7 +554,7 @@ async function getCapacityEvaluation(
     };
   }
 
-  const [dailyUsage, confirmedAreaUsageResult, waitlistAreaUsageResult] = await Promise.all([
+  const [dailyUsage, confirmedAreaUsageResult, waitlistAreaUsageResult, heldDailyUsage, heldAreaUsageResult] = await Promise.all([
     db
       .prepare(
         `SELECT COALESCE(SUM(dt.capacity_points), 0) AS usedPoints
@@ -618,8 +592,27 @@ async function getCapacityEvaluation(
       )
       .bind(appointmentDate, WAITLISTED_APPOINTMENT_STATUS, excludedAppointmentId ?? 0)
       .all<{ itemAreaId: number; usedPoints: number }>(),
+    db.prepare(
+      `SELECT COALESCE(SUM(reserved_daily_intake_points), 0) AS usedPoints
+       FROM booking_holds
+       WHERE dropoff_day_id = (SELECT id FROM dropoff_days WHERE dropoff_date = ?)
+         AND status = 'active' AND expires_at > CURRENT_TIMESTAMP
+         AND appointment_status = 'scheduled' AND id != ?`,
+    ).bind(appointmentDate, excludedHoldId ?? "").first<{ usedPoints: number }>(),
+    db.prepare(
+      `SELECT area.id AS itemAreaId,
+        COALESCE(SUM(CASE area.name
+          WHEN 'Smalls' THEN hold.reserved_smalls_points
+          WHEN 'Large/Furniture' THEN hold.reserved_large_furniture_points
+          WHEN 'Outdoor' THEN hold.reserved_outdoor_points ELSE 0 END), 0) AS usedPoints
+       FROM booking_holds hold JOIN item_areas area ON area.name IN ('Smalls', 'Large/Furniture', 'Outdoor')
+       WHERE hold.dropoff_day_id = (SELECT id FROM dropoff_days WHERE dropoff_date = ?)
+         AND hold.status = 'active' AND hold.expires_at > CURRENT_TIMESTAMP
+         AND hold.appointment_status = 'scheduled' AND hold.id != ?
+       GROUP BY area.id`,
+    ).bind(appointmentDate, excludedHoldId ?? "").all<{ itemAreaId: number; usedPoints: number }>(),
   ]);
-  const dailyUsedPoints = dailyUsage?.usedPoints ?? 0;
+  const dailyUsedPoints = (dailyUsage?.usedPoints ?? 0) + (heldDailyUsage?.usedPoints ?? 0);
   const dailyRequestedPoints = dropoffType.capacityPoints;
   const errors: string[] = [];
   const overridableViolations: string[] = [];
@@ -628,6 +621,7 @@ async function getCapacityEvaluation(
   const usedByArea = new Map(
     confirmedAreaUsageResult.results.map((usage) => [usage.itemAreaId, usage.usedPoints]),
   );
+  for (const usage of heldAreaUsageResult.results) usedByArea.set(usage.itemAreaId, (usedByArea.get(usage.itemAreaId) ?? 0) + usage.usedPoints);
   const waitlistedByArea = new Map(waitlistAreaUsageResult.results.map((usage) => [usage.itemAreaId, usage.usedPoints]));
   const normalExceededAreas: string[] = [];
   const waitlistFullAreas: string[] = [];

@@ -2,7 +2,8 @@ import { env } from "cloudflare:workers";
 import { data, redirect } from "react-router";
 import type { Route } from "./+types/home";
 import { getCurrentUser } from "../services/auth.server";
-import { getPendingBooking, getPendingBookingToken } from "../services/pending-booking.server";
+import { getBookingAttemptId, getPendingBooking, getPendingBookingToken } from "../services/pending-booking.server";
+import { getBookingHold } from "../services/booking-holds.server";
 import { getCustomerBookingEvents, getCustomerDropoffDateForDate } from "../services/booking-event.server";
 import { BookingEventCard } from "../components/booking-event-card";
 import { useBookingEventAvailabilityMonitor } from "../components/booking-event-availability-monitor";
@@ -17,9 +18,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
   const now = new Date();
   const user = await getCurrentUser(request, env.trice_auction_db, runtime);
-  const pendingBooking = user ? await getPendingBooking(env.trice_auction_db, getPendingBookingToken(request)) : null;
-  if (pendingBooking) {
-    const selected = await getCustomerDropoffDateForDate(env.trice_auction_db, pendingBooking.appointmentDate);
+  const [pendingBooking, hold] = await Promise.all([user ? getPendingBooking(env.trice_auction_db, getPendingBookingToken(request)) : null, getBookingHold(env.trice_auction_db, getBookingAttemptId(request))]);
+  if (pendingBooking || hold) {
+    const selected = await getCustomerDropoffDateForDate(env.trice_auction_db, (hold ?? pendingBooking)!.appointmentDate);
     if (selected) return redirect(`/dropoffs/${selected.date.eventId}/book?resume=1`);
   }
   const bookingEvents = await getCustomerBookingEvents(env.trice_auction_db, now);

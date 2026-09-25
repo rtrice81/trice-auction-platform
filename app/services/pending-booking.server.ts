@@ -6,6 +6,7 @@ export type PendingBooking = {
 };
 
 const COOKIE_NAME = "trice_pending_booking";
+const BOOKING_ATTEMPT_COOKIE_NAME = "trice_booking_attempt";
 
 export function pendingBookingFromForm(form: FormData): PendingBooking {
   return {
@@ -63,6 +64,19 @@ export function pendingBookingCookie(token: string, request: Request) {
 
 export function clearPendingBookingCookie(request: Request) {
   return `${COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${new URL(request.url).protocol === "https:" ? "; Secure" : ""}`;
+}
+
+/** Opaque per-browser booking-flow identity. It is never supplied by form data. */
+export function getBookingAttemptId(request: Request) {
+  const cookie = request.headers.get("cookie") ?? "";
+  const value = cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${BOOKING_ATTEMPT_COOKIE_NAME}=`))?.slice(BOOKING_ATTEMPT_COOKIE_NAME.length + 1);
+  return value && /^[a-f0-9]{64}$/.test(value) ? value : null;
+}
+
+export function createBookingAttemptId() { return randomToken(); }
+
+export function bookingAttemptCookie(token: string, request: Request) {
+  return `${BOOKING_ATTEMPT_COOKIE_NAME}=${token}; Path=/; Max-Age=7200; HttpOnly; SameSite=Lax${new URL(request.url).protocol === "https:" ? "; Secure" : ""}`;
 }
 
 function randomToken() {

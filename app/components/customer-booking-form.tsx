@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Form, useNavigation, useSubmit } from "react-router";
 import type { PendingBooking } from "../services/pending-booking.server";
 import { Button, PageCard } from "./design-system";
@@ -14,9 +14,10 @@ type BookingFormProps = {
   turnstileSiteKey: string;
   formStartToken: string;
   waitlistOnly?: boolean;
+  hold?: { expiresAt: string; appointmentDate: string; dropoffTypeId: number; allocations: Array<{ itemAreaId: number; percentage: number }> } | null;
 };
 
-export function CustomerBookingForm({ appointmentDate, booking, dropoffTypes, itemAreas, isAuthenticated, turnstileSiteKey, formStartToken, waitlistOnly = false }: BookingFormProps) {
+export function CustomerBookingForm({ appointmentDate, booking, dropoffTypes, itemAreas, isAuthenticated, turnstileSiteKey, formStartToken, waitlistOnly = false, hold = null }: BookingFormProps) {
   const navigation = useNavigation();
   const submitting = navigation.state !== "idle";
   const [turnstileVerified, setTurnstileVerified] = useState(false);
@@ -24,10 +25,14 @@ export function CustomerBookingForm({ appointmentDate, booking, dropoffTypes, it
   const submit = useSubmit();
   const handleTurnstileChange = useCallback((hasToken: boolean) => setTurnstileVerified(hasToken), []);
   const requiresTurnstile = !isAuthenticated;
+  const [total, setTotal] = useState(() => (booking?.allocations ?? hold?.allocations ?? []).reduce((sum, allocation) => sum + allocation.percentage, 0));
+  const [now, setNow] = useState(Date.now());
+  const activeHold = hold && Date.parse(`${hold.expiresAt.replace(" ", "T")}Z`) > now ? hold : null;
+  const seconds = activeHold ? Math.max(0, Math.ceil((Date.parse(`${activeHold.expiresAt.replace(" ", "T")}Z`) - now) / 1000)) : 0;
+  useEffect(() => { if (!activeHold) return; const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, [activeHold?.expiresAt]);
   return <Form method="post" className="space-y-8" onSubmit={(event) => { if (!requiresTurnstile) return; event.preventDefault(); const formData = new FormData(event.currentTarget); formData.set("cf-turnstile-response", turnstileTokenRef.current); const submittedToken = formData.get("cf-turnstile-response"); if (!turnstileVerified || typeof submittedToken !== "string" || !submittedToken) return; console.info("turnstile-submit-check", { hasToken: Boolean(submittedToken), tokenLength: typeof submittedToken === "string" ? submittedToken.length : 0, formDataHasToken: formData.has("cf-turnstile-response") }); submit(formData, { method: "post" }); }}><input type="hidden" name="appointmentDate" value={appointmentDate}/>{requiresTurnstile ? <><PublicFormProtection siteKey={turnstileSiteKey} formStartToken={formStartToken} onTokenChange={handleTurnstileChange} turnstileTokenRef={turnstileTokenRef}/></> : null}
     <fieldset><legend className="sr-only">Choose your load type</legend><PageCard title="1. Choose your load type"><div className="grid gap-4 sm:grid-cols-2">{dropoffTypes.map((dropoffType) => <label key={dropoffType.id} className="cursor-pointer rounded-2xl border border-stone-200 bg-white p-6 shadow-sm transition hover:border-[#9d302f] hover:shadow-md has-[:checked]:border-[#9d302f] has-[:checked]:ring-2 has-[:checked]:ring-[#f2d8d7]"><input required type="radio" name="dropoffTypeId" value={dropoffType.id} defaultChecked={booking ? booking.dropoffTypeId === dropoffType.id : undefined} className="sr-only"/><span className="block text-xl font-semibold text-stone-950">{dropoffType.name}</span></label>)}</div></PageCard></fieldset>
-    <fieldset><legend className="sr-only">Allocate your item areas</legend><PageCard title="2. Allocate your item areas"><p className="mb-5 max-w-2xl text-sm leading-6 text-stone-600">Enter whole percentages for Smalls and Outdoor. Large/Furniture is calculated from the remaining percentage.</p><AreaAllocationFields itemAreas={itemAreas} allocations={booking?.allocations}/></PageCard></fieldset>
-    <label className="block max-w-2xl text-sm font-semibold text-stone-800">What are you bringing? <span className="font-normal text-stone-500">(optional)</span><textarea name="description" rows={5} maxLength={2000} defaultValue={booking?.description ?? ""} placeholder="Example: glassware, household items, lawn mower, bedroom suite, car, tools, collectibles, etc." className="mt-2 block min-h-32 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal leading-6 outline-none focus:border-[#9d302f] focus:ring-2 focus:ring-[#f2d8d7]"/><span className="mt-2 block text-sm font-normal leading-5 text-stone-600">Please tell us about the items you plan to bring. This is shared with our appointment team.</span></label>
-    {waitlistOnly ? <p className="rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm text-violet-950">This date is accepting waitlist requests. Joining the waitlist does not guarantee an appointment.</p> : null}<Button type="submit" disabled={submitting || (requiresTurnstile && !turnstileVerified)}>{submitting ? "Saving your request…" : waitlistOnly ? "Join Waitlist" : "Request drop-off appointment"}</Button>
+    <fieldset><legend className="sr-only">Allocate your item areas</legend><PageCard title="2. Allocate your item areas"><p className="mb-5 max-w-2xl text-sm leading-6 text-stone-600">Enter whole percentages for every area. Your allocations must total exactly 100% before space can be reserved.</p><AreaAllocationFields itemAreas={itemAreas} allocations={booking?.allocations ?? hold?.allocations} onTotalChange={setTotal}/></PageCard></fieldset>
+    {!activeHold ? <Button name="intent" value="reserve" type="submit" disabled={submitting || total !== 100 || (requiresTurnstile && !turnstileVerified)}>{submitting ? "Checking availability…" : "Reserve My Space"}</Button> : <><PageCard title="Your reserved space"><p className="text-lg font-bold text-emerald-800">Your space is reserved for {String(Math.floor(seconds / 60)).padStart(2, "0")}:{String(seconds % 60).padStart(2, "0")}</p><p className="mt-2 text-sm text-stone-600">Complete your booking before the timer expires. If the hold expires, the space may become available to another customer.</p></PageCard><label className="block max-w-2xl text-sm font-semibold text-stone-800">What are you bringing? <span className="font-normal text-stone-500">(optional)</span><textarea name="description" rows={5} maxLength={2000} defaultValue={booking?.description ?? ""} className="mt-2 block min-h-32 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal leading-6"/></label><Button name="intent" value="complete" type="submit" disabled={submitting || !isAuthenticated}>{submitting ? "Completing booking…" : isAuthenticated ? "Complete booking" : "Log in or create an account to complete booking"}</Button></>}
   </Form>;
 }
