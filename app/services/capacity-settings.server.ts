@@ -20,6 +20,7 @@ export type AdminItemArea = {
 export type CapacitySettings = {
   defaultDailyIntakeCapacity: number;
   monthlyBookingLimit: number;
+  defaultBookingHoldDurationMinutes: number;
   dropoffTypes: AdminDropoffType[];
   itemAreas: AdminItemArea[];
 };
@@ -31,6 +32,7 @@ export type CapacitySettingsResult =
 type GeneralSettingsInput = {
   defaultDailyIntakeCapacity: number;
   monthlyBookingLimit: number;
+  defaultBookingHoldDurationMinutes: number;
 };
 
 type DropoffTypeInput = {
@@ -59,7 +61,7 @@ export async function getCapacitySettings(db: D1Database): Promise<CapacitySetti
     db
       .prepare(
         `SELECT key, value FROM settings
-         WHERE key IN ('default_daily_intake_capacity', 'monthly_booking_limit')`,
+         WHERE key IN ('default_daily_intake_capacity', 'monthly_booking_limit', 'default_booking_hold_duration_minutes')`,
       ),
     db
       .prepare(
@@ -92,14 +94,16 @@ export async function getCapacitySettings(db: D1Database): Promise<CapacitySetti
   );
   const defaultDailyIntakeCapacity = settings.get("default_daily_intake_capacity");
   const monthlyBookingLimit = settings.get("monthly_booking_limit");
+  const defaultBookingHoldDurationMinutes = settings.get("default_booking_hold_duration_minutes") ?? 15;
 
-  if (!isNonNegativeNumber(defaultDailyIntakeCapacity) || !isPositiveInteger(monthlyBookingLimit)) {
+  if (!isNonNegativeNumber(defaultDailyIntakeCapacity) || !isPositiveInteger(monthlyBookingLimit) || !Number.isInteger(defaultBookingHoldDurationMinutes) || defaultBookingHoldDurationMinutes < 5 || defaultBookingHoldDurationMinutes > 60) {
     throw new Error("Capacity settings are not configured correctly.");
   }
 
   return {
     defaultDailyIntakeCapacity: defaultDailyIntakeCapacity!,
     monthlyBookingLimit: monthlyBookingLimit!,
+    defaultBookingHoldDurationMinutes,
     dropoffTypes: dropoffTypesResult.results as AdminDropoffType[],
     itemAreas: itemAreasResult.results as AdminItemArea[],
   };
@@ -116,6 +120,7 @@ export async function saveGeneralSettings(
   if (!isPositiveInteger(input.monthlyBookingLimit)) {
     errors.push("Monthly booking limit must be a whole number of at least 1.");
   }
+  if (!Number.isInteger(input.defaultBookingHoldDurationMinutes) || input.defaultBookingHoldDurationMinutes < 5 || input.defaultBookingHoldDurationMinutes > 60) errors.push("Default reservation hold time must be between 5 and 60 minutes.");
   if (errors.length > 0) return { ok: false, errors };
 
   await db.batch([
@@ -131,6 +136,7 @@ export async function saveGeneralSettings(
          ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       )
       .bind(String(input.monthlyBookingLimit)),
+    db.prepare(`INSERT INTO settings (key, value) VALUES ('default_booking_hold_duration_minutes', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`).bind(String(input.defaultBookingHoldDurationMinutes)),
   ]);
 
   return { ok: true, message: "General capacity settings saved." };

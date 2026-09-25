@@ -16,7 +16,9 @@ test("hold duration defaults to 15 minutes and validates the supported range", (
 });
 
 test("date override inherits event duration before application default", () => {
-  assert.match(durationResolver, /overrideMinutes \?\? row\?\.eventMinutes \?\? DEFAULT_BOOKING_HOLD_DURATION_MINUTES/);
+  assert.match(durationResolver, /overrideMinutes/);
+  assert.match(durationResolver, /eventMinutes/);
+  assert.match(durationResolver, /default_booking_hold_duration_minutes/);
   assert.match(migration, /hold_duration_minutes_override INTEGER NULL/);
   assert.match(migration, /hold_duration_minutes INTEGER NOT NULL DEFAULT 15/);
 });

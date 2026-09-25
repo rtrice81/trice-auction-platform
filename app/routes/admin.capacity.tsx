@@ -35,6 +35,7 @@ export async function action({ request }: Route.ActionArgs) {
       result = await saveGeneralSettings(db, {
         defaultDailyIntakeCapacity: numberValue(formData, "defaultDailyIntakeCapacity"),
         monthlyBookingLimit: numberValue(formData, "monthlyBookingLimit"),
+        defaultBookingHoldDurationMinutes: numberValue(formData, "defaultBookingHoldDurationMinutes"),
       });
       break;
     case "save-load-type":
@@ -116,6 +117,7 @@ export default function AdminCapacity({ loaderData, actionData }: Route.Componen
                 step={0.01}
                 hint="Capacity points assigned when a new drop-off day is created."
               />
+              <NumberField label="Default reservation hold time" name="defaultBookingHoldDurationMinutes" value={loaderData.defaultBookingHoldDurationMinutes} min={5} step={1} hint="Minutes capacity is reserved when a date has no Booking Event setting or override." />
               <NumberField
                 label="Monthly booking limit per consignor"
                 name="monthlyBookingLimit"
