@@ -10,7 +10,16 @@ test("schedule status filters retain scroll position while preserving their quer
   assert.match(scheduleDetail, /to=\{`\/admin\/schedule\/\$\{event\.id\}\?status=\$\{status\}`\} preventScrollReset/);
   assert.match(scheduleDetail, /APPOINTMENT_STATUS_FILTERS\.map/);
   assert.doesNotMatch(scheduleDetail, /replace\s*=/);
-  assert.match(schedule, /visibility=public" preventScrollReset/);
+  assert.match(schedule, /scheduleUrl\(loaderData\.view, "public"\)\} preventScrollReset/);
+});
+
+test("schedule archive tabs retain date detail access and its existing admin history features", () => {
+  assert.match(schedule, /Drop-Off Event views/);
+  assert.match(schedule, /Archived<\/Link>/);
+  assert.match(schedule, /to=\{`\/admin\/schedule\/\$\{event\.id\}`\}/);
+  assert.match(scheduleDetail, /<AppointmentSummaryList appointments=\{event\.appointments\}/);
+  assert.match(scheduleDetail, /<StorageCapacitySummary areas=\{event\.areas\}/);
+  assert.match(scheduleDetail, /Print Daily Schedule/);
 });
 
 test("appointment status labels are title-cased without changing their internal values", () => {
