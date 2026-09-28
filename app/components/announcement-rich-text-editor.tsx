@@ -1,7 +1,5 @@
 import { EditorContent, useEditor } from "@tiptap/react";
-import Link from "@tiptap/extension-link";
 import TextAlign from "@tiptap/extension-text-align";
-import Underline from "@tiptap/extension-underline";
 import StarterKit from "@tiptap/starter-kit";
 import type { Editor } from "@tiptap/core";
 import { useState } from "react";
@@ -14,10 +12,12 @@ export function AnnouncementRichTextEditor({ initialContent }: { initialContent:
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
-      StarterKit.configure({ heading: { levels: [2, 3] } }),
-      Underline,
+      StarterKit.configure({
+        heading: { levels: [2, 3] },
+        underline: {},
+        link: { openOnClick: false, autolink: false, linkOnPaste: false, HTMLAttributes: { rel: "noreferrer" } },
+      }),
       TextAlign.configure({ types: ["heading", "paragraph"], alignments: ["left", "center", "right"], defaultAlignment: "left" }),
-      Link.configure({ openOnClick: false, autolink: false, linkOnPaste: false, HTMLAttributes: { rel: "noreferrer" } }),
     ],
     content: initialContent ?? EMPTY_DOCUMENT,
     onUpdate: ({ editor: updatedEditor }) => setSerializedContent(JSON.stringify(updatedEditor.getJSON())),
