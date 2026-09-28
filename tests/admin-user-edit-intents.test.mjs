@@ -18,6 +18,11 @@ test("Activate action routes only to activate", () => {
   assert.equal(getAdminUserEditOperation(ADMIN_USER_EDIT_INTENT.activate), "activate");
 });
 
+test("Password reset action remains separate from profile saving", () => {
+  assert.equal(getAdminUserEditOperation(ADMIN_USER_EDIT_INTENT.resetPassword), "reset-password");
+  assert.notEqual(getAdminUserEditOperation(ADMIN_USER_EDIT_INTENT.resetPassword), "save");
+});
+
 test("Save does not trigger deactivate", () => {
   assert.notEqual(getAdminUserEditOperation(ADMIN_USER_EDIT_INTENT.save), "deactivate");
 });
