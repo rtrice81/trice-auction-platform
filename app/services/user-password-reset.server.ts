@@ -36,6 +36,10 @@ export async function resetManagedUserPassword(
 
     const passwordHash = await authContext.password.hash(input.newPassword);
     await authContext.internalAdapter.updatePassword(target.authUserId, passwordHash);
+    const updatedCredential = await authContext.internalAdapter.findCredentialAccount(target.authUserId);
+    if (!updatedCredential?.password || !await authContext.password.verify({ hash: updatedCredential.password, password: input.newPassword })) {
+      return failure("Password reset could not be completed. Please try again.");
+    }
 
     if (input.actorUserId === target.id && input.currentActorSessionToken) {
       const sessions = await authContext.internalAdapter.listSessions(target.authUserId);

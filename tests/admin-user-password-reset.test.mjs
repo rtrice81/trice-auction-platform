@@ -23,6 +23,7 @@ test("password reset updates only the linked credential account, revokes target 
   assert.match(service, /authContext\.password\.hash/);
   assert.match(service, /internalAdapter\.findCredentialAccount/);
   assert.match(service, /internalAdapter\.updatePassword/);
+  assert.match(service, /authContext\.password\.verify/);
   assert.match(service, /internalAdapter\.deleteUserSessions/);
   assert.match(service, /INSERT INTO user_password_reset_audits/);
   assert.doesNotMatch(migration, /\b(?:new|old)_?password\b|password_hash|auth_token/i);
