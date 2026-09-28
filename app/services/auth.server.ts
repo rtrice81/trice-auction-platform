@@ -18,7 +18,7 @@ type AuthEnvironment = { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
 
 // The public custom domain proxies this Worker, but Better Auth still needs to
 // accept its browser Origin for email/password requests.
-const PUBLIC_AUTH_ORIGINS = ["https://bidtrice.com", "https://www.bidtrice.com"];
+const PUBLIC_AUTH_ORIGINS = ["https://bidtrice.com", "https://www.bidtrice.com", "https://consign.bidtrice.com"];
 
 // Worker isolates serve many requests. Better Auth's configuration is immutable for
 // a binding/secret pair, so keep it for the isolate instead of rebuilding it for

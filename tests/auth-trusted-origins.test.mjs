@@ -8,5 +8,6 @@ test("Better Auth accepts browser requests from the public custom domain", () =>
   assert.match(auth, /PUBLIC_AUTH_ORIGINS/);
   assert.match(auth, /https:\/\/bidtrice\.com/);
   assert.match(auth, /https:\/\/www\.bidtrice\.com/);
+  assert.match(auth, /https:\/\/consign\.bidtrice\.com/);
   assert.match(auth, /trustedOrigins: PUBLIC_AUTH_ORIGINS/);
 });
