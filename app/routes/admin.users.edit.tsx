@@ -37,6 +37,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       confirmNewPassword: String(form.get("confirmNewPassword") || ""),
       requirePasswordChange: form.get("requirePasswordChange") === "on",
       currentActorSessionToken: session?.session.token,
+      requestUrl: request.url,
     });
     return data(result, { status: result.ok ? 200 : 400 });
   }

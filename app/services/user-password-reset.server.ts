@@ -13,6 +13,7 @@ export async function resetManagedUserPassword(
     confirmNewPassword: string;
     requirePasswordChange: boolean;
     currentActorSessionToken?: string;
+    requestUrl: string;
   },
 ): Promise<PasswordResetResult> {
   if (!isPositiveInteger(input.actorUserId) || !isPositiveInteger(input.targetUserId)) return failure("Choose a valid user.");
@@ -40,6 +41,13 @@ export async function resetManagedUserPassword(
     if (!updatedCredential?.password || !await authContext.password.verify({ hash: updatedCredential.password, password: input.newPassword })) {
       return failure("Password reset could not be completed. Please try again.");
     }
+    // Exercise Better Auth's actual email/password sign-in path before reporting success.
+    const signInVerification = await auth.handler(new Request(new URL("/api/auth/sign-in/email", input.requestUrl), {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: new URL(input.requestUrl).origin },
+      body: JSON.stringify({ email: target.email, password: input.newPassword }),
+    }));
+    if (!signInVerification.ok) return failure("Password reset could not be completed. Please try again.");
 
     if (input.actorUserId === target.id && input.currentActorSessionToken) {
       const sessions = await authContext.internalAdapter.listSessions(target.authUserId);
