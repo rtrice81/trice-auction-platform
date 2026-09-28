@@ -19,12 +19,13 @@ test("admin appointment groups show event context and exclude cancelled records 
   assert.match(appointments, /non-cancelled appointment/);
 });
 
-test("admin appointment views use the New York calendar and order each selected date set ascending", () => {
+test("admin appointment views use the New York calendar and apply the requested date order", () => {
   assert.match(appointments, /const view = upcomingPastView\(url\.searchParams\.get\("view"\)\)/);
   assert.match(appointments, /calendarDateInTimezone\(new Date\(\), "America\/New_York"\)/);
   assert.match(appointments, /\? = 'upcoming' AND a\.appointment_date >= \?/);
   assert.match(appointments, /\? = 'past' AND a\.appointment_date < \?/);
-  assert.match(appointments, /ORDER BY a\.appointment_date ASC, a\.id DESC/);
+  assert.match(appointments, /CASE WHEN \? = 'past' THEN a\.appointment_date END DESC/);
+  assert.match(appointments, /CASE WHEN \? = 'upcoming' THEN a\.appointment_date END ASC/);
   assert.match(appointments, /aria-label="Appointment views"/);
   assert.match(appointments, /<Link to=\{appointmentUrl\("upcoming"/);
   assert.match(appointments, /<Link to=\{appointmentUrl\("past"/);

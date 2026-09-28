@@ -39,8 +39,10 @@ export async function loader({ request }: Route.LoaderArgs) {
        AND ((? = 'upcoming' AND a.appointment_date >= ?) OR (? = 'past' AND a.appointment_date < ?))
        AND (? = '' OR LOWER(u.email) LIKE LOWER(?) OR LOWER(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) LIKE LOWER(?) OR LOWER(COALESCE(u.consignor_id, '')) LIKE LOWER(?))
      GROUP BY a.id
-     ORDER BY a.appointment_date ASC, a.id DESC`,
-  ).bind(status, status, view, today, view, today, q, pattern, pattern, pattern).all<AppointmentRow>();
+     ORDER BY CASE WHEN ? = 'past' THEN a.appointment_date END DESC,
+              CASE WHEN ? = 'upcoming' THEN a.appointment_date END ASC,
+              a.id DESC`,
+  ).bind(status, status, view, today, view, today, q, pattern, pattern, pattern, view, view).all<AppointmentRow>();
   return { q, status, view, appointmentGroups: groupAppointmentsByDropoffDate(results) };
 }
 
