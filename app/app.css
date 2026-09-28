@@ -30,7 +30,24 @@ body {
   .ta-site-announcement { @apply border-y border-[#e9c7a6] bg-[#fff7ed] px-5 py-4 text-[#7c2d12] sm:px-8; }
   .ta-site-announcement > div { @apply mx-auto max-w-screen-2xl; }
   .ta-site-announcement-title { @apply font-bold; }
-  .ta-site-announcement-message { @apply mt-1 whitespace-pre-wrap text-sm leading-6; }
+  .ta-site-announcement-message { @apply mt-1 text-sm leading-6; }
+  .ta-site-announcement-message > * + * { @apply mt-2; }
+  .ta-site-announcement-message h2 { @apply text-lg font-bold; }
+  .ta-site-announcement-message h3 { @apply text-base font-bold; }
+  .ta-site-announcement-message ul { @apply list-disc pl-5; }
+  .ta-site-announcement-message ol { @apply list-decimal pl-5; }
+  .ta-site-announcement-message a { @apply font-semibold underline underline-offset-2; }
+  .ta-rich-text-editor { @apply overflow-hidden rounded-md border border-[#c9cdd2] bg-white; }
+  .ta-rich-text-toolbar { @apply flex flex-wrap gap-1 border-b border-[#dfe1e4] bg-[#f8f9fa] p-2; }
+  .ta-rich-text-toolbar button { @apply min-h-9 rounded border border-transparent px-2 text-xs font-bold text-[#35383d] hover:bg-[#e9ebee] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9d302f] disabled:opacity-50; }
+  .ta-rich-text-toolbar button.is-active { @apply border-[#9d302f] bg-[#f8eded] text-[#9d302f]; }
+  .ta-rich-text-content .tiptap { @apply min-h-40 px-3 py-3 text-sm leading-6 text-[#25272b] outline-none; }
+  .ta-rich-text-content .tiptap > * + * { @apply mt-3; }
+  .ta-rich-text-content .tiptap h2 { @apply text-lg font-bold; }
+  .ta-rich-text-content .tiptap h3 { @apply font-bold; }
+  .ta-rich-text-content .tiptap ul { @apply list-disc pl-5; }
+  .ta-rich-text-content .tiptap ol { @apply list-decimal pl-5; }
+  .ta-rich-text-content .tiptap a { @apply font-semibold text-[#9d302f] underline; }
   .ta-page { @apply min-h-screen bg-[#f3f4f6] px-4 py-9 sm:px-6 sm:py-12; }
   .ta-page > * { @apply mx-auto max-w-6xl; }
   .ta-page-intro { @apply mb-8 border-b border-[#d7d9dc] pb-7; }
