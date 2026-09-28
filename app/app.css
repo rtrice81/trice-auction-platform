@@ -29,7 +29,7 @@ body {
   .ta-primary-nav a { @apply border-b-2 border-transparent py-2 hover:border-[#9d302f] hover:text-[#9d302f]; }
   .ta-site-announcement { @apply border-y border-[#e9c7a6] bg-[#fff7ed] px-5 py-4 text-[#7c2d12] sm:px-8; }
   .ta-site-announcement > div { @apply mx-auto max-w-screen-2xl; }
-  .ta-site-announcement-title { @apply font-bold; }
+  .ta-site-announcement-title { @apply text-center font-bold; }
   .ta-site-announcement-message { @apply mt-1 text-sm leading-6; }
   .ta-site-announcement-message > * + * { @apply mt-2; }
   .ta-site-announcement-message h2 { @apply text-lg font-bold; }
