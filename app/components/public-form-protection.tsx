@@ -4,8 +4,9 @@ type TurnstileOptions = {
   sitekey: string;
   callback: (token: string) => void;
   "expired-callback": () => void;
-  "error-callback": () => void;
+  "error-callback": (errorCode: string) => boolean;
   "response-field": false;
+  retry: "never";
   theme: "auto";
   size: "flexible";
 };
@@ -35,6 +36,7 @@ export function PublicFormProtection({ siteKey, formStartToken, onTokenChange, t
   const widget = useRef<HTMLDivElement>(null);
   const widgetId = useRef<string | undefined>(undefined);
   const [hasToken, setHasToken] = useState(false);
+  const [challengeError, setChallengeError] = useState(false);
   const statusId = useId();
 
   useEffect(() => {
@@ -48,6 +50,14 @@ export function PublicFormProtection({ siteKey, formStartToken, onTokenChange, t
       if (widgetId.current) window.turnstile?.reset(widgetId.current);
     };
 
+    const clearTokenAfterError = () => {
+      turnstileTokenRef.current = "";
+      setHasToken(false);
+      setChallengeError(true);
+      onTokenChange(false);
+      return true;
+    };
+
     const render = () => {
       if (!siteKey || !widget.current || widgetId.current || !window.turnstile) return;
       widgetId.current = window.turnstile.render(widget.current, {
@@ -55,13 +65,15 @@ export function PublicFormProtection({ siteKey, formStartToken, onTokenChange, t
         callback: (nextToken) => {
           turnstileTokenRef.current = nextToken;
           setHasToken(Boolean(nextToken));
+          setChallengeError(false);
           onTokenChange(Boolean(nextToken));
         },
         "expired-callback": clearTokenAndReset,
-        "error-callback": clearTokenAndReset,
+        "error-callback": clearTokenAfterError,
         // The application writes the widget token to the exact FormData it submits.
         // This avoids Turnstile creating a second DOM response field.
         "response-field": false,
+        retry: "never",
         theme: "auto",
         size: "flexible",
       });
@@ -91,6 +103,6 @@ export function PublicFormProtection({ siteKey, formStartToken, onTokenChange, t
     <input type="hidden" name="formStartToken" value={formStartToken}/>
     <div aria-hidden="true" className="absolute h-px w-px overflow-hidden whitespace-nowrap [clip:rect(0,0,0,0)]"><label>Company website<input tabIndex={-1} autoComplete="off" name="companyWebsite"/></label></div>
     <div ref={widget} className="cf-turnstile" aria-describedby={hasToken ? undefined : statusId}/>
-    {!hasToken && <p id={statusId} role="status" className="text-sm text-stone-600">Complete the security check before submitting.</p>}
+    {challengeError ? <div id={statusId} role="status" className="space-y-2 text-sm text-stone-600"><p>We could not load the security check. Please refresh and try again.</p><button type="button" className="font-semibold text-[#9d302f] underline underline-offset-4" onClick={() => { setChallengeError(false); if (widgetId.current) window.turnstile?.reset(widgetId.current); }}>Retry security check</button></div> : !hasToken && <p id={statusId} role="status" className="text-sm text-stone-600">Complete the security check before submitting.</p>}
   </>;
 }

@@ -3,10 +3,10 @@
 ## Deployment facts
 
 - Workers development URL: `https://trice-auction-platform.auctioneer-80b.workers.dev`
-- Custom domain: not configured.
+- Public custom domain: `https://consign.bidtrice.com`.
 - Production D1 binding: `trice_auction_db` → `trice-auction-db`.
 - Required Worker secrets (configured by name only): `AUTH_SECRET`, `BETTER_AUTH_URL`.
-- Better Auth base URL: the HTTPS Workers development URL above. Production cookies remain secure because `auth.server.ts` enables secure cookies in production.
+- Better Auth base URL: `https://consign.bidtrice.com`. Production cookies remain secure because `auth.server.ts` enables secure cookies in production.
 
 ## Account preparation
 

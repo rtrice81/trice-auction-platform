@@ -9,7 +9,7 @@ cp .dev.vars.example .dev.vars
 ```
 
 - `AUTH_SECRET` — a high-entropy Better Auth signing secret; required in local and production environments.
-- `BETTER_AUTH_URL` — the public application URL used by Better Auth. Use `http://127.0.0.1:5173` locally and the deployed Workers URL in production.
+- `BETTER_AUTH_URL` — the public application URL used by Better Auth. Use `http://127.0.0.1:5173` locally and `https://consign.bidtrice.com` in production. The Workers URL is for direct deployment testing only.
 - `trice_auction_db` — the D1 binding declared in `wrangler.jsonc`; it is not a browser-visible variable.
 - `branding_assets` — the private R2 binding used for the uploaded site logo. Create the bucket once before local or production use; the Worker serves the logo and no R2 credentials are sent to the browser.
 
