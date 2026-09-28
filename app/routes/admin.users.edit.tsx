@@ -28,8 +28,9 @@ export async function action({ request, params }: Route.ActionArgs) {
   const operation = getAdminUserEditOperation(intent);
   if (!operation) return data({ ok: false, errors: ["Invalid action."] }, { status: 400 });
   if (operation === "reset-password") {
-    const session = await getAuth(env.trice_auction_db, runtime).api.getSession({ headers: request.headers });
-    const result = await resetManagedUserPassword(env.trice_auction_db, {
+    const auth = getAuth(env.trice_auction_db, runtime);
+    const session = await auth.api.getSession({ headers: request.headers });
+    const result = await resetManagedUserPassword(env.trice_auction_db, auth, {
       actorUserId: actor.id,
       targetUserId,
       newPassword: String(form.get("newPassword") || ""),

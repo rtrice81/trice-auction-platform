@@ -20,10 +20,10 @@ test("password reset validates confirmation and the established password policy"
 });
 
 test("password reset updates only the linked credential account, revokes target sessions, and audits no credentials", () => {
-  assert.match(service, /hashPassword/);
-  assert.match(service, /providerId = 'credential'/);
-  assert.match(service, /issuer = 'local:credential'/);
-  assert.match(service, /DELETE FROM session WHERE userId = \?/);
+  assert.match(service, /authContext\.password\.hash/);
+  assert.match(service, /internalAdapter\.findCredentialAccount/);
+  assert.match(service, /internalAdapter\.updatePassword/);
+  assert.match(service, /internalAdapter\.deleteUserSessions/);
   assert.match(service, /INSERT INTO user_password_reset_audits/);
   assert.doesNotMatch(migration, /\b(?:new|old)_?password\b|password_hash|auth_token/i);
   assert.doesNotMatch(service, /console\.(log|info|error)/);
