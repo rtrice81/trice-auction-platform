@@ -11,7 +11,9 @@ import type { Route } from "./+types/root";
 import { env } from "cloudflare:workers";
 import { getCurrentUser } from "./services/auth.server";
 import { getSiteLogo } from "./services/branding.server";
+import { getVisibleSiteAnnouncement } from "./services/site-announcement.server";
 import { AppHeader } from "./components/app-header";
+import { SiteAnnouncement } from "./components/site-announcement";
 import "./app.css";
 
 export const links: Route.LinksFunction = () => [
@@ -46,17 +48,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const [user, logo] = await Promise.all([
+  const isAdminRoute = new URL(request.url).pathname.startsWith("/admin");
+  const [user, logo, announcement] = await Promise.all([
     getCurrentUser(request, env.trice_auction_db, env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string }),
     getSiteLogo(env.trice_auction_db),
+    isAdminRoute ? Promise.resolve(null) : getVisibleSiteAnnouncement(env.trice_auction_db),
   ]);
-  return { user, logo: logo ? { updatedAt: logo.updatedAt } : null };
+  return { user, logo: logo ? { updatedAt: logo.updatedAt } : null, announcement };
 }
 
 export default function App({ loaderData }: Route.ComponentProps) {
   const user = loaderData.user;
   const logo = loaderData.logo;
-  return <><AppHeader user={user} logo={logo} /><Outlet /></>;
+  return <><AppHeader user={user} logo={logo} /><SiteAnnouncement announcement={loaderData.announcement} /><Outlet /></>;
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {

@@ -15,6 +15,7 @@ export default [
   route("change-password", "routes/change-password.tsx"),
   layout("routes/admin.layout.tsx", [
     route("admin/branding", "routes/admin.branding.tsx"),
+    route("admin/settings/announcement", "routes/admin.announcement.tsx"),
     route("admin/notifications", "routes/admin.notifications.tsx"),
     route("admin/notification-recipients", "routes/admin.notification-recipients.tsx"),
     route("admin/capacity", "routes/admin.capacity.tsx"),

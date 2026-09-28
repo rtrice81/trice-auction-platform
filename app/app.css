@@ -27,6 +27,10 @@ body {
   .ta-brand span { @apply mt-1 text-xs font-bold uppercase tracking-[0.16em] text-[#293d89]; }
   .ta-primary-nav { @apply flex flex-wrap items-center gap-x-6 gap-y-2 text-sm font-semibold text-[#54575d] lg:justify-end; }
   .ta-primary-nav a { @apply border-b-2 border-transparent py-2 hover:border-[#9d302f] hover:text-[#9d302f]; }
+  .ta-site-announcement { @apply border-y border-[#e9c7a6] bg-[#fff7ed] px-5 py-4 text-[#7c2d12] sm:px-8; }
+  .ta-site-announcement > div { @apply mx-auto max-w-screen-2xl; }
+  .ta-site-announcement-title { @apply font-bold; }
+  .ta-site-announcement-message { @apply mt-1 whitespace-pre-wrap text-sm leading-6; }
   .ta-page { @apply min-h-screen bg-[#f3f4f6] px-4 py-9 sm:px-6 sm:py-12; }
   .ta-page > * { @apply mx-auto max-w-6xl; }
   .ta-page-intro { @apply mb-8 border-b border-[#d7d9dc] pb-7; }
