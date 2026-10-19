@@ -9,6 +9,10 @@ export type InternalRecipient = {
   receiveUpdated: number;
   receiveCancelled: number;
   receiveRegistration: number;
+  receivePickupCreated: number;
+  receivePickupRescheduled: number;
+  receivePickupCancelled: number;
+  receivePickupCompleted: number;
 };
 
 export type UserRegistrationSnapshot = {
@@ -35,7 +39,9 @@ export async function listInternalAppointmentRecipients(db: D1Database) {
   const { results } = await db.prepare(`SELECT id, label, email, active,
     receive_created AS receiveCreated, receive_updated AS receiveUpdated,
     receive_cancelled AS receiveCancelled,
-    receive_registration AS receiveRegistration
+    receive_registration AS receiveRegistration,
+    receive_pickup_created AS receivePickupCreated, receive_pickup_rescheduled AS receivePickupRescheduled,
+    receive_pickup_cancelled AS receivePickupCancelled, receive_pickup_completed AS receivePickupCompleted
     FROM appointment_notification_recipients ORDER BY active DESC, label ASC, id ASC`).all<InternalRecipient>();
   return results;
 }
@@ -46,8 +52,8 @@ export async function saveInternalAppointmentRecipient(db: D1Database, input: Om
   if (!label) return { ok: false as const, error: "Recipient label is required." };
   if (!/^\S+@\S+\.\S+$/.test(email)) return { ok: false as const, error: "Enter a valid recipient email address." };
   try {
-    if (input.id) await db.prepare(`UPDATE appointment_notification_recipients SET label=?,email=?,active=?,receive_created=?,receive_updated=?,receive_cancelled=?,receive_registration=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(label, email, input.active, input.receiveCreated, input.receiveUpdated, input.receiveCancelled, input.receiveRegistration, input.id).run();
-    else await db.prepare(`INSERT INTO appointment_notification_recipients(label,email,active,receive_created,receive_updated,receive_cancelled,receive_registration) VALUES(?,?,?,?,?,?,?)`).bind(label, email, input.active, input.receiveCreated, input.receiveUpdated, input.receiveCancelled, input.receiveRegistration).run();
+    if (input.id) await db.prepare(`UPDATE appointment_notification_recipients SET label=?,email=?,active=?,receive_created=?,receive_updated=?,receive_cancelled=?,receive_registration=?,receive_pickup_created=?,receive_pickup_rescheduled=?,receive_pickup_cancelled=?,receive_pickup_completed=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(label, email, input.active, input.receiveCreated, input.receiveUpdated, input.receiveCancelled, input.receiveRegistration, input.receivePickupCreated, input.receivePickupRescheduled, input.receivePickupCancelled, input.receivePickupCompleted, input.id).run();
+    else await db.prepare(`INSERT INTO appointment_notification_recipients(label,email,active,receive_created,receive_updated,receive_cancelled,receive_registration,receive_pickup_created,receive_pickup_rescheduled,receive_pickup_cancelled,receive_pickup_completed) VALUES(?,?,?,?,?,?,?,?,?,?,?)`).bind(label, email, input.active, input.receiveCreated, input.receiveUpdated, input.receiveCancelled, input.receiveRegistration, input.receivePickupCreated, input.receivePickupRescheduled, input.receivePickupCancelled, input.receivePickupCompleted).run();
   } catch (error) {
     if (error instanceof Error && /unique/i.test(error.message)) return { ok: false as const, error: "That recipient email already exists." };
     throw error;
@@ -58,7 +64,7 @@ export async function saveInternalAppointmentRecipient(db: D1Database, input: Om
 export async function deleteInternalAppointmentRecipient(db: D1Database, id: number) {
   const recipient = await db.prepare("SELECT email FROM appointment_notification_recipients WHERE id=?").bind(id).first<{ email: string }>();
   if (!recipient) return { ok: false as const, error: "Recipient not found." };
-  const history = await db.prepare("SELECT COUNT(*) AS count FROM notification_jobs WHERE recipient=? AND notification_type LIKE 'internal_%'").bind(recipient.email).first<{ count: number }>();
+  const history = await db.prepare("SELECT COUNT(*) AS count FROM notification_jobs WHERE recipient=? AND (notification_type LIKE 'internal_%' OR notification_type LIKE 'pickup_%')").bind(recipient.email).first<{ count: number }>();
   if (history?.count) return { ok: false as const, error: "This recipient has delivery history. Deactivate it instead." };
   await db.prepare("DELETE FROM appointment_notification_recipients WHERE id=?").bind(id).run();
   return { ok: true as const };

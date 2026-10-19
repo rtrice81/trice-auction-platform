@@ -1,3 +1,4 @@
+import { safelyQueuePickupNotifications, type PickupSchedule } from "./internal-pickup-notifications.server";
 import { PICKUP_STATUSES, type PickupStatus } from "../lib/consignment-pickup-status";
 export { PICKUP_STATUSES, type PickupStatus } from "../lib/consignment-pickup-status";
 
@@ -42,11 +43,16 @@ export async function validatePickupAssignments(db: D1Database, assignedUserIds:
 }
 
 export async function savePickup(db: D1Database, input: PickupInput, createdByUserId: number, pickupId?: number) {
+  const previous = pickupId ? await db.prepare("SELECT pickup_date AS pickupDate, arrival_time AS arrivalTime, status, notification_revision AS notificationRevision FROM consignment_pickups WHERE id=?").bind(pickupId).first<PickupSchedule>() : null;
+  if (pickupId && !previous) throw new Response("Not Found", { status: 404 });
   const values = [input.customerId, input.title, input.pickupDate, input.arrivalTime || null, input.estimatedDurationMinutes ? Number(input.estimatedDurationMinutes) : null, input.status, input.contactName, input.contactPhone, input.addressLine1, input.addressLine2 || null, input.city, input.state, input.postalCode, input.accessInstructions || null, input.estateDescription || null, input.estimatedLoadSize || null, Number(input.estimatedSmallsPercent), Number(input.estimatedLargePercent), Number(input.estimatedOutdoorPercent), input.internalNotes || null] as const;
   let id = pickupId;
-  if (id) await db.prepare(`UPDATE consignment_pickups SET user_id=?, title=?, pickup_date=?, arrival_time=?, estimated_duration_minutes=?, status=?, contact_name=?, contact_phone=?, address_line1=?, address_line2=?, city=?, state=?, postal_code=?, access_instructions=?, estate_description=?, estimated_load_size=?, estimated_smalls_percent=?, estimated_large_percent=?, estimated_outdoor_percent=?, internal_notes=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(...values, id).run();
+  if (id) { const result = await db.prepare(`UPDATE consignment_pickups SET user_id=?, title=?, pickup_date=?, arrival_time=?, estimated_duration_minutes=?, status=?, contact_name=?, contact_phone=?, address_line1=?, address_line2=?, city=?, state=?, postal_code=?, access_instructions=?, estate_description=?, estimated_load_size=?, estimated_smalls_percent=?, estimated_large_percent=?, estimated_outdoor_percent=?, internal_notes=?, updated_at=CURRENT_TIMESTAMP, notification_revision=notification_revision+1 WHERE id=? AND notification_revision=?`).bind(...values, id, previous!.notificationRevision).run();
+    if (!result.meta.changes) throw new Response("Pickup changed. Reload and try again.", { status: 409 });
+  }
   else { const result = await db.prepare(`INSERT INTO consignment_pickups (user_id,title,pickup_date,arrival_time,estimated_duration_minutes,status,contact_name,contact_phone,address_line1,address_line2,city,state,postal_code,access_instructions,estate_description,estimated_load_size,estimated_smalls_percent,estimated_large_percent,estimated_outdoor_percent,internal_notes,created_by_user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(...values, createdByUserId).run(); id = Number(result.meta.last_row_id); }
   await db.batch([db.prepare("DELETE FROM consignment_pickup_assignments WHERE pickup_id = ?").bind(id), ...input.assignedUserIds.map((userId) => db.prepare("INSERT INTO consignment_pickup_assignments (pickup_id, user_id, assigned_by_user_id) VALUES (?, ?, ?)").bind(id, userId, createdByUserId))]);
+  await safelyQueuePickupNotifications(db, id!, input, previous, createdByUserId);
   return id!;
 }
 function text(form: FormData, name: string) { return String(form.get(name) ?? "").trim(); }

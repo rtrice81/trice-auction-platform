@@ -27,3 +27,13 @@ Add the sending domain/subdomain in Resend and publish the Resend-provided SPF a
 ## Telnyx
 
 Configure the inbound messaging webhook as `POST /webhooks/telnyx/sms`. The Worker verifies Telnyx's Ed25519 timestamped signature using `TELNYX_WEBHOOK_PUBLIC_KEY` before processing keywords. `STOP` disables SMS and records an opt-out timestamp; `START` records renewed consent; `HELP` is accepted for provider/help handling. Telnyx provider-level opt-outs should also remain enabled in the Telnyx portal.
+
+## Consignment pickup notifications
+
+Admin pickup saves queue `pickup_created`, `pickup_rescheduled`, `pickup_cancelled`, and `pickup_completed` through the existing `notification_jobs` outbox and Resend provider. Date or arrival-time changes generate reschedule events; unrelated edits do not. Cancellation and completion require a status transition. A revision check rejects competing writes and revision-based idempotency keys prevent duplicate queueing. Loaders and revalidation never queue notifications.
+
+Apply migration `0040_add_pickup_notifications.sql` before running the updated app. Existing internal recipients start with pickup subscriptions off. In `/admin/notifications`, enable the desired pickup event types and select subscriptions for each active internal recipient. Recipient creation, activation, and all event subscriptions are also available in `/admin/notification-recipients`. All settings remain admin-only. Global email disable and per-type disable suppress pickup delivery.
+
+Pickup templates are editable in Notifications and use the existing plain-text email style. Supported pickup variables include `customerName`, `consignorNumber`, `pickupTitle`, `pickupDate`, `pickupTime`, `pickupAddress`, `contactName`, `contactPhone`, `estimatedLoad`, `estimatedSmalls`, `estimatedLargeFurniture`, `estimatedOutdoor`, `pickupUrl`, `previousPickupDate`, `previousPickupTime`, `actorName`, and `completedAt`. The date and clock fields represent America/New_York local time, and completion timestamps are formatted in that timezone. `pickupUrl` is a complete internal admin URL using `APP_BASE_URL` or `BETTER_AUTH_URL`.
+
+Pickup writes complete before notification queueing is attempted. Queue failures log only the pickup ID and event types; delivery failures use a generic error and the existing retry mechanism. Failed queue attempts do not roll back pickup changes and require operational follow-up. No customer pickup email or SMS is sent. The event payload and editable templates can support a separate customer audience later without changing the outbox.
