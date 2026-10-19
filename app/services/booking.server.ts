@@ -1,7 +1,8 @@
 import { getEffectiveDateCapacity, type EffectiveDateCapacity } from "./date-capacity.server";
 import { getBookableBookingEventForDate } from "./booking-event.server";
 import { bookingEventInstant } from "../lib/booking-event-time";
-import { ensureUserRole } from "./user-roles.server";
+import { createUserRoleStatement, ensureUserRole } from "./user-roles.server";
+import { createNewAppointmentOverrideAuditStatement, type AppointmentOverrideAuditInput } from "./appointment-override-audit.server";
 
 export type ItemArea = {
   id: number;
@@ -40,6 +41,8 @@ type Settings = {
   monthlyBookingLimit: number;
 };
 
+export type MonthlyAppointment = { id: number; appointmentDate: string; status: string };
+
 export type CapacityContext = {
   monthly: {
     appointmentDate: string;
@@ -47,6 +50,7 @@ export type CapacityContext = {
     bookingLimit: number;
     monthStart: string;
     monthEnd: string;
+    appointments: MonthlyAppointment[];
   };
   day: {
     date: string;
@@ -61,6 +65,8 @@ export type CapacityContext = {
     usedPoints: number;
     requestedPoints: number;
     allowedPoints: number;
+    waitlistUsedPoints?: number;
+    waitlistCapacityPoints?: number;
   }>;
 };
 
@@ -86,6 +92,10 @@ export type BookingValidationResult =
   | {
       ok: false;
       errors: string[];
+      capacityErrors?: string[];
+      monthlyErrors?: string[];
+      appointmentStatus?: "scheduled" | "waitlisted";
+      waitlistReason?: string | null;
       overridableViolations: string[];
       capacityContext: CapacityContext | null;
       dropoffType: DropoffType | null;
@@ -166,6 +176,17 @@ export async function getBookingFormOptions(db: D1Database) {
 export async function createBooking(db: D1Database, input: BookingInput, options: { allowAdminScheduling?: boolean } = {}): Promise<BookingResult> {
   const validation = await validateBooking(db, input, options);
   if (!validation.ok) return validation;
+  return createValidatedBooking(db, input, validation);
+}
+
+// Server-only persistence after normal validation, or the authorized admin
+// creation service's explicit review of monthly and capacity consent.
+export async function createValidatedBooking(
+  db: D1Database,
+  input: BookingInput,
+  validation: Extract<BookingValidationResult, { ok: true }>,
+  audit?: Omit<AppointmentOverrideAuditInput, "appointmentId">,
+): Promise<Extract<BookingResult, { ok: true }>> {
 
   const appointmentId = input.appointmentId;
   if (appointmentId) {
@@ -180,58 +201,43 @@ export async function createBooking(db: D1Database, input: BookingInput, options
     };
   }
 
-  const appointment = await db
-    .prepare(
+  const [appointment] = await db.batch([
+    db.prepare(
       `INSERT INTO appointments (
         user_id, appointment_date, dropoff_type_id, description, status, waitlisted_at, waitlist_reason
-      ) VALUES (?, ?, ?, ?, ?, CASE WHEN ? = 'waitlisted' THEN CURRENT_TIMESTAMP ELSE NULL END, ?)
-      RETURNING id`,
+      ) VALUES (?, ?, ?, ?, ?, CASE WHEN ? = 'waitlisted' THEN CURRENT_TIMESTAMP ELSE NULL END, ?)`,
     )
     .bind(
       input.userId,
       input.appointmentDate,
-        validation.dropoffType.id,
+      validation.dropoffType.id,
       input.description || null,
       validation.appointmentStatus,
       validation.appointmentStatus,
       validation.waitlistReason,
-    )
-    .first<{ id: number }>();
-
-  if (!appointment) {
-    return {
-      ok: false,
-      errors: ["The booking could not be created. Please try again."],
-      overridableViolations: [],
-      capacityContext: null,
-      dropoffType: null,
-    };
-  }
-
-  await db.batch(
-    validation.allocations.map((allocation) =>
+    ),
+    ...validation.allocations.map((allocation) =>
       db
         .prepare(
           `INSERT INTO appointment_area_allocations (
             appointment_id, item_area_id, allocation_percent, capacity_points
-          ) VALUES (?, ?, ?, ?)`,
+           ) VALUES ((SELECT MAX(id) FROM appointments), ?, ?, ?)`,
         )
         .bind(
-          appointment.id,
           allocation.itemAreaId,
           allocation.percentage,
           calculateAllocatedPoints(validation.dropoffType.capacityPoints, allocation.percentage),
         ),
     ),
-  );
-
-  // Appointment ownership confers consignor capability, while retaining every
-  // existing staff/admin/bidder membership.
-  await ensureUserRole(db, input.userId, "consignor");
+    // Keep role assignment and any override audit in the same transaction.
+    createUserRoleStatement(db, input.userId, "consignor"),
+    ...(audit ? [createNewAppointmentOverrideAuditStatement(db, audit)] : []),
+  ]);
+  const createdAppointmentId = Number(appointment.meta.last_row_id);
 
   return {
     ok: true,
-    appointmentId: appointment.id,
+    appointmentId: createdAppointmentId,
     status: validation.appointmentStatus,
     message: validation.appointmentStatus === WAITLISTED_APPOINTMENT_STATUS
       ? "Your requested drop-off appointment is on the waitlist and is not yet confirmed."
@@ -296,26 +302,8 @@ export async function validateBooking(
     ], allocations);
   }
 
-  const monthBounds = getMonthBounds(input.appointmentDate);
-  const monthlyBookings = await db
-    .prepare(
-      `SELECT COUNT(*) AS count
-       FROM appointments
-       WHERE user_id = ?
-         AND appointment_date >= ?
-         AND appointment_date < ?
-         AND status IN (?, ?)
-         AND id != ?`,
-    )
-    .bind(
-      input.userId,
-      monthBounds.start,
-      monthBounds.end,
-      ...[CONFIRMED_APPOINTMENT_STATUS, WAITLISTED_APPOINTMENT_STATUS],
-      input.appointmentId ?? 0,
-    )
-    .first<{ count: number }>();
-  const monthlyCount = monthlyBookings?.count ?? 0;
+  const monthlyUsage = await getMonthlyAppointmentUsage(db, input);
+  const monthlyCount = monthlyUsage.appointments.length;
   const monthlyViolation =
     monthlyCount >= settings.monthlyBookingLimit
       ? `This consignor has reached the monthly booking limit of ${settings.monthlyBookingLimit}.`
@@ -337,8 +325,9 @@ export async function validateBooking(
       appointmentDate: input.appointmentDate,
       bookingCount: monthlyCount,
       bookingLimit: settings.monthlyBookingLimit,
-      monthStart: monthBounds.start,
-      monthEnd: monthBounds.end,
+      monthStart: monthlyUsage.start,
+      monthEnd: monthlyUsage.end,
+      appointments: monthlyUsage.appointments,
     },
     day: capacity.context.day,
     areas: capacity.context.areas,
@@ -350,10 +339,22 @@ export async function validateBooking(
   ];
 
   if (errors.length > 0) {
-    return { ok: false, errors, overridableViolations, capacityContext, dropoffType, allocations };
+    return { ok: false, errors, capacityErrors: capacity.errors, monthlyErrors: monthlyViolation ? [monthlyViolation] : [], appointmentStatus: capacity.status, waitlistReason: capacity.waitlistReason, overridableViolations, capacityContext, dropoffType, allocations };
   }
 
   return { ok: true, dropoffType, capacityContext, allocations, appointmentStatus: capacity.status, waitlistReason: capacity.waitlistReason };
+}
+
+export async function getMonthlyAppointmentUsage(db: D1Database, input: Pick<BookingInput, "userId" | "appointmentDate" | "appointmentId">) {
+  const bounds = getMonthBounds(input.appointmentDate);
+  const { results } = await db.prepare(
+    `SELECT id, appointment_date AS appointmentDate, status
+     FROM appointments
+     WHERE user_id = ? AND appointment_date >= ? AND appointment_date < ?
+       AND status IN ('scheduled', 'waitlisted', 'checked_in', 'completed') AND id != ?
+     ORDER BY appointment_date, id`,
+  ).bind(input.userId, bounds.start, bounds.end, input.appointmentId ?? 0).all<MonthlyAppointment>();
+  return { ...bounds, appointments: results };
 }
 
 export async function promoteWaitlistedAppointment(db: D1Database, appointmentId: number) {
@@ -633,7 +634,7 @@ async function getCapacityEvaluation(
     const allowedPoints = effectiveArea.capacityPoints;
     if (usedPoints + requestedPoints > effectiveArea.capacityPoints) normalExceededAreas.push(area.name);
     if ((waitlistedByArea.get(area.id) ?? 0) + requestedPoints > effectiveArea.overflowAllowancePoints) waitlistFullAreas.push(area.name);
-    return { id: area.id, name: area.name, usedPoints, requestedPoints, allowedPoints };
+    return { id: area.id, name: area.name, usedPoints, requestedPoints, allowedPoints, waitlistUsedPoints: waitlistedByArea.get(area.id) ?? 0, waitlistCapacityPoints: effectiveArea.overflowAllowancePoints };
   });
 
   const requiresWaitlist = normalExceededAreas.length > 0;
@@ -654,7 +655,7 @@ async function getCapacityEvaluation(
     context: {
       day: {
         date: appointmentDate,
-        isOpen: true,
+        isOpen: effectiveCapacity.isOpen,
         capacityPoints: effectiveCapacity.dailyCapacityPoints,
         usedPoints: dailyUsedPoints,
         requestedPoints: dailyRequestedPoints,

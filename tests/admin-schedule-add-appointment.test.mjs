@@ -4,7 +4,10 @@ import test from "node:test";
 
 const scheduleDetail = await readFile(new URL("../app/routes/admin.schedule.detail.tsx", import.meta.url), "utf8");
 const appointmentRoute = await readFile(new URL("../app/routes/admin.appointments.new.tsx", import.meta.url), "utf8");
+const appointmentCreation = await readFile(new URL("../app/services/admin-appointment-creation.server.ts", import.meta.url), "utf8");
+const booking = await readFile(new URL("../app/services/booking.server.ts", import.meta.url), "utf8");
 const appointmentModal = await readFile(new URL("../app/components/add-appointment-modal.tsx", import.meta.url), "utf8");
+const appointmentFeedback = await readFile(new URL("../app/components/admin-appointment-feedback.tsx", import.meta.url), "utf8");
 const scheduleManagement = await readFile(new URL("../app/services/schedule-management.server.ts", import.meta.url), "utf8");
 
 test("storage capacity summary is at the top of the schedule detail", () => {
@@ -50,22 +53,25 @@ test("schedule-bound appointments require admin access and lock the submitted da
   assert.match(appointmentRoute, /requireRole\(request, env\.trice_auction_db, runtime, "admin"\)/);
   assert.match(appointmentRoute, /getDropoffEventById\(env\.trice_auction_db, scheduleId\)/);
   assert.match(appointmentRoute, /if \(schedule\) input\.appointmentDate = schedule\.date/);
-  assert.match(appointmentRoute, /allowAdminScheduling: true/);
+  assert.match(appointmentCreation, /allowAdminScheduling: true/);
 });
 
 test("modal validation stays in the dialog and successful creation revalidates without navigation", () => {
   assert.match(appointmentModal, /<appointmentFetcher\.Form method="post" action="\/admin\/appointments\/new"/);
-  assert.match(appointmentModal, /role="alert"/);
+  assert.match(appointmentModal, /<AppointmentCreationError errors=\{appointmentFetcher\.data\.errors\}/);
+  assert.match(appointmentFeedback, /role="alert"/);
+  assert.match(appointmentFeedback, /alertRef\.current\?\.focus\(\)/);
   assert.match(appointmentModal, /onCreated\(appointmentFetcher\.data\.message/);
   assert.match(appointmentRoute, /form\.get\("responseMode"\) === "modal"/);
   assert.match(appointmentRoute, /data\(\{ ok: true as const, appointmentId: result\.appointmentId/);
 });
 
 test("modal keeps capacity overrides audited", () => {
-  assert.match(appointmentRoute, /createAppointmentOverrideAuditStatement/);
-  assert.match(appointmentModal, /name="intent" value="override"/);
-  assert.match(appointmentModal, /Record override and create appointment/);
-  assert.match(appointmentRoute, /data\(\{ ok: true as const, appointmentId, message: "Appointment created with capacity override\." \}\)/);
+  assert.match(booking, /createNewAppointmentOverrideAuditStatement/);
+  assert.match(appointmentCreation, /\.\.\.capacityViolations/);
+  assert.doesNotMatch(appointmentModal, /name="overrideReason"/);
+  assert.match(appointmentCreation, /admin-created appointment/);
+  assert.match(appointmentCreation, /"Appointment created with capacity override\."/);
 });
 
 test("modal supports searching, selecting, and creating customers without leaving the appointment flow", () => {

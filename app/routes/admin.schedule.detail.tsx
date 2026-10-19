@@ -57,6 +57,7 @@ export default function DropoffEventDetail({ loaderData, actionData }: Route.Com
     <main className="mx-auto max-w-5xl p-8">
       <Link to="/admin/schedule">← Drop-Off Events</Link>
       <header className="mt-4"><h1 className="text-3xl font-bold">{event.eventName || "Drop-Off Event"}</h1><p className="mt-1 text-stone-600">{event.date} · {event.visibility === "private" ? "Private / Internal" : "Public"} · {event.isOpen ? "Open for bookings" : "Closed for bookings"}</p></header>
+      <p className="mt-4 text-sm">Daily intake: {event.usedPoints} / {event.dailyCapacityPoints} confirmed{event.usedPoints > event.dailyCapacityPoints ? <strong className="ml-2 text-red-800">Over capacity by {event.usedPoints - event.dailyCapacityPoints} points</strong> : null}</p>
       <StorageCapacitySummary areas={event.areas}/>
       {loaderData.created ? <p className="mt-4 rounded border border-emerald-200 bg-emerald-50 p-3" role="status">Appointment created and added to this Drop-Off Date.</p> : null}
       {actionData?.ok ? <p className="mt-4 rounded border border-emerald-200 bg-emerald-50 p-3" role="status">{actionData.message}</p> : null}

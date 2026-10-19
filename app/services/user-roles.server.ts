@@ -5,5 +5,9 @@ import type { Role } from "../lib/roles";
  * `(user_id, role)` primary key makes this safe to call after every booking.
  */
 export async function ensureUserRole(db: D1Database, userId: number, role: Role) {
-  await db.prepare("INSERT OR IGNORE INTO user_roles (user_id, role) VALUES (?, ?)").bind(userId, role).run();
+  await createUserRoleStatement(db, userId, role).run();
+}
+
+export function createUserRoleStatement(db: D1Database, userId: number, role: Role) {
+  return db.prepare("INSERT OR IGNORE INTO user_roles (user_id, role) VALUES (?, ?)").bind(userId, role);
 }

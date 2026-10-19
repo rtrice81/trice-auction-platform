@@ -55,6 +55,24 @@ export function createAppointmentOverrideAuditStatement(
   if (!Number.isInteger(input.appointmentId) || input.appointmentId < 1) {
     throw new Error("A valid appointment ID is required for an override audit entry.");
   }
+  return buildOverrideAuditStatement(db, input, input.appointmentId);
+}
+
+// Use only in an atomic batch immediately after inserting a new appointment.
+// Other allocation/audit inserts can change last_insert_rowid(), so anchor the
+// audit to the newest appointment in that same serialized transaction instead.
+export function createNewAppointmentOverrideAuditStatement(
+  db: D1Database,
+  input: Omit<AppointmentOverrideAuditInput, "appointmentId">,
+): D1PreparedStatement {
+  return buildOverrideAuditStatement(db, input, null);
+}
+
+function buildOverrideAuditStatement(
+  db: D1Database,
+  input: Omit<AppointmentOverrideAuditInput, "appointmentId">,
+  appointmentId: number | null,
+): D1PreparedStatement {
   if (!Number.isInteger(input.actorUserId) || input.actorUserId < 1) {
     throw new Error("A valid actor user ID is required for an override audit entry.");
   }
@@ -74,10 +92,10 @@ export function createAppointmentOverrideAuditStatement(
         previous_values_json,
         requested_values_json,
         capacity_context_json
-      ) VALUES (?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?, ?, ?)`,
+      ) SELECT ${appointmentId === null ? "(SELECT MAX(id) FROM appointments)" : "?"}, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?, ?, ?`,
     )
     .bind(
-      input.appointmentId,
+      ...(appointmentId === null ? [] : [appointmentId]),
       input.actorUserId,
       input.actorRole,
       input.occurredAt ?? null,
