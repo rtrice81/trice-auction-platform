@@ -31,7 +31,7 @@ export function isDropoffDatePast(dropoffDate, now = new Date()) {
   return dropoffDate < calendarDateInTimezone(now, CUSTOMER_BOOKING_TIMEZONE);
 }
 
-/** @param {string} dropoffDate ISO calendar date (YYYY-MM-DD) @param {Date} [now] */
+/** @param {string} dropoffDate ISO calendar date (YYYY-MM-DD) @param {Date} [now] @returns {"upcoming" | "past"} */
 export function dropoffDateStatus(dropoffDate, now = new Date()) {
   return isDropoffDatePast(dropoffDate, now) ? "past" : "upcoming";
 }
