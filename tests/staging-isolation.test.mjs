@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import test from "node:test";
 import { ModuleKind, ScriptTarget, transpileModule } from "typescript";
 import { readConfig, validateStagingConfig, productionDatabaseId } from "../scripts/staging-config.mjs";
-import { stagingSeedSql, validateSeedArguments } from "../scripts/seed-staging.mjs";
+import { stagingSeedSql, validateSeedArguments, validateSeedPassword, seedErrorMessage } from "../scripts/seed-staging.mjs";
 
 async function moduleUrl(url) {
   let code = transpileModule(await readFile(url, "utf8"), { compilerOptions: { module: ModuleKind.ESNext, target: ScriptTarget.ES2022 } }).outputText;
@@ -20,6 +20,28 @@ const { verifyTurnstile } = await load("services/public-form-protection.server")
 const { createResendEmailProvider } = await load("services/email-provider.server");
 const { createTelnyxSmsProvider } = await load("services/sms-provider.server");
 const staging = readConfig().env.staging.vars;
+
+test("seed password failures explain the remedy without exposing input", () => {
+  for (const [password, expected] of [[undefined, /No staging password/], ["sensitive-short", /at least 16 characters/]]) {
+    let error;
+    try { validateSeedPassword(password); } catch (caught) { error = caught; }
+    assert.ok(error);
+    assert.match(seedErrorMessage(error), expected);
+    if (password) assert.ok(!seedErrorMessage(error).includes(password));
+  }
+  assert.ok(!seedErrorMessage(new Error("sensitive-dependency-error")).includes("sensitive-dependency-error"));
+  const env = { ...process.env };
+  delete env.STAGING_SEED_PASSWORD;
+  for (const password of [undefined, "sensitive-short"]) {
+    const result = spawnSync(process.execPath, ["scripts/seed-staging.mjs", "--env", "staging", "--remote"], {
+      cwd: new URL("../", import.meta.url), env: password === undefined ? env : { ...env, STAGING_SEED_PASSWORD: password }, encoding: "utf8",
+    });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, password === undefined ? /No staging password/ : /at least 16 characters/);
+    assert.doesNotMatch(result.stdout, /Seeding|wrangler/i);
+    if (password) assert.ok(!result.stderr.includes(password));
+  }
+});
 
 test("staging config and seed refuse production resources and target overrides", () => {
   validateStagingConfig(readConfig());

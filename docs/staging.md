@@ -107,14 +107,18 @@ Existing `npm run deploy` still builds and deploys production. Do not export
 
 ## Explicit seed process
 
-After staging migrations, choose a unique staging-only test password. In zsh:
+After staging migrations, run the command below in your terminal. It prompts for
+a unique staging-only test password of at least 16 characters with input hidden:
 
 ```sh
-read -rs 'STAGING_SEED_PASSWORD?Staging test password (at least 16 characters): '
-export STAGING_SEED_PASSWORD
 npm run db:seed:staging
-unset STAGING_SEED_PASSWORD
 ```
+
+For unattended runs, supply `STAGING_SEED_PASSWORD` securely through the process
+environment. An exported value takes precedence over the prompt; unset a stale
+value to prompt again. Missing or short passwords produce specific diagnostics
+before Wrangler runs. The script also identifies isolation, hashing, temporary
+file, and Wrangler import failures without printing passwords or hashes.
 
 The seed script refuses production or extra CLI arguments and checks the actual
 Wrangler database ID/name, R2, origin, and notification configuration before

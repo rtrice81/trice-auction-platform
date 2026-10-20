@@ -3,10 +3,36 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { createInterface } from "node:readline/promises";
+import { Writable } from "node:stream";
 import { hashPassword } from "better-auth/crypto";
 import { projectRoot, readConfig, validateStagingConfig } from "./staging-config.mjs";
 
 const quote = value => `'${String(value).replaceAll("'", "''")}'`;
+
+class SeedSetupError extends Error {}
+
+export function validateSeedPassword(password) {
+  if (!password) throw new SeedSetupError("No staging password was provided. Run npm run db:seed:staging in an interactive terminal to enter one, or export STAGING_SEED_PASSWORD.");
+  if (password.length < 16) throw new SeedSetupError("Staging password must contain at least 16 characters. Run the seed command again and enter a longer staging-only password.");
+  return password;
+}
+
+async function readSeedPassword() {
+  if (process.env.STAGING_SEED_PASSWORD !== undefined) return validateSeedPassword(process.env.STAGING_SEED_PASSWORD);
+  if (!process.stdin.isTTY || !process.stderr.isTTY) return validateSeedPassword(undefined);
+  const mutedOutput = new Writable({ write(_chunk, _encoding, callback) { callback(); } });
+  const prompt = createInterface({ input: process.stdin, output: mutedOutput, terminal: true });
+  process.stderr.write("Staging-only password (16+ characters; input hidden): ");
+  try { return validateSeedPassword(await prompt.question("")); }
+  finally { prompt.close(); process.stderr.write("\n"); }
+}
+
+export function seedErrorMessage(error) {
+  // Only display messages created here; arbitrary dependency/child-process errors
+  // can contain SQL, password hashes, or environment values.
+  return error instanceof SeedSetupError ? error.message : "Unexpected staging seed failure. No production target is supported.";
+}
 
 export function validateSeedArguments(args) {
   if (args.length !== 3 || args[0] !== "--env" || args[1] !== "staging" || !["--remote", "--local"].includes(args[2])) {
@@ -45,21 +71,31 @@ export function stagingSeedSql(passwordHash) {
 
 async function main() {
   const args = process.argv.slice(2);
-  validateSeedArguments(args);
-  validateStagingConfig(readConfig());
-  const password = process.env.STAGING_SEED_PASSWORD;
-  if (!password || password.length < 16) throw new Error("Set STAGING_SEED_PASSWORD to a staging-only password of at least 16 characters. It will not be printed.");
-  const directory = mkdtempSync(join(tmpdir(), "trice-staging-seed-"));
+  try { validateSeedArguments(args); }
+  catch { throw new SeedSetupError("Refusing seed: use --env staging --remote (or --local); production targets and extra arguments are forbidden."); }
+  try { validateStagingConfig(readConfig()); }
+  catch { throw new SeedSetupError("Staging isolation validation failed. Run npm run staging:check for the configuration diagnostic; no seed SQL was executed."); }
+  const password = await readSeedPassword();
+  let passwordHash;
+  try { passwordHash = await hashPassword(password); }
+  catch { throw new SeedSetupError("Could not hash the staging password. Check your Node installation and installed Better Auth dependencies; no seed SQL was executed."); }
+  let directory;
+  try { directory = mkdtempSync(join(tmpdir(), "trice-staging-seed-")); }
+  catch { throw new SeedSetupError("Cannot create a private seed directory. Check temporary-directory permissions; no seed SQL was executed."); }
   try {
     const file = join(directory, "seed.sql");
-    writeFileSync(file, stagingSeedSql(await hashPassword(password)), { mode: 0o600 });
-    execFileSync(process.execPath, [new URL("node_modules/wrangler/bin/wrangler.js", projectRoot).pathname,
-      "d1", "execute", "trice-auction-db-staging", "--env", "staging", args[2], "--config", new URL("wrangler.jsonc", projectRoot).pathname, "--file", file, "--yes"],
-    { cwd: projectRoot, stdio: "inherit" });
+    try { writeFileSync(file, stagingSeedSql(passwordHash), { mode: 0o600 }); }
+    catch { throw new SeedSetupError("Cannot write the private seed SQL file. Check temporary-directory permissions; no seed SQL was executed."); }
+    console.log(`Staging isolation verified. Seeding ${args[2] === "--remote" ? "remote" : "local"} trice-auction-db-staging.`);
+    try {
+      execFileSync(process.execPath, [new URL("node_modules/wrangler/bin/wrangler.js", projectRoot).pathname,
+        "d1", "execute", "trice-auction-db-staging", "--env", "staging", args[2], "--config", new URL("wrangler.jsonc", projectRoot).pathname, "--file", file, "--yes"],
+      { cwd: projectRoot, stdio: "inherit" });
+    } catch { throw new SeedSetupError("Wrangler staging import failed. Review the Wrangler diagnostic above; check Cloudflare login and staging migrations. Re-running can complete a partial seed."); }
     console.log("Seeded staging: [STAGING] Load test event, five future drop-off dates, date capacities, and 100 synthetic consignor logins at example.invalid. Re-running refreshes their password and adds future dates; it does not clear appointments.");
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch(() => { console.error("Staging seed failed. Check configuration, staging credentials, and STAGING_SEED_PASSWORD; no production target is supported."); process.exitCode = 1; });
+  main().catch(error => { console.error(`Staging seed failed: ${seedErrorMessage(error)}`); process.exitCode = 1; });
 }
