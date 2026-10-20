@@ -17,7 +17,8 @@
     "deploy:staging": "npm run staging:check && npm run build:staging && node scripts/staging-config.mjs --built && wrangler deploy --config build/server/wrangler.json",
     "staging:check": "node scripts/staging-config.mjs",
     "db:migrate:staging": "npm run staging:check && wrangler d1 migrations apply trice-auction-db-staging --env staging --remote --config wrangler.jsonc",
-    "db:seed:staging": "node scripts/seed-staging.mjs --env staging --remote"
+    "db:seed:staging": "node scripts/seed-staging.mjs --env staging --remote",
+    "smoke:staging": "node scripts/smoke-staging.mjs --env staging --remote"
   },
   "dependencies": {
     "@tiptap/extension-link": "^3.31.3",
