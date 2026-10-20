@@ -19,6 +19,7 @@ export function validateStagingConfig(config) {
   assert.equal(production?.database_id, productionDatabaseId, "Production database identity changed; review isolation before proceeding.");
   assert.equal(production.database_name, "trice-auction-db");
   assert.equal(staging?.name, "trice-auction-platform-staging");
+  assert.deepEqual(staging.limits, { cpu_ms: 1000 }, "Staging must have its explicit, bounded CPU allowance.");
   assert.deepEqual(staging.d1_databases, [{ binding: "trice_auction_db", database_name: "trice-auction-db-staging", database_id: stagingDatabaseId, migrations_dir: "migrations" }], "Staging D1 must be the dedicated staging database.");
   assert.deepEqual(staging.r2_buckets, [{ binding: "branding_assets", bucket_name: "trice-auction-branding-staging" }]);
   assert.ok(!config.r2_buckets.some(bucket => bucket.bucket_name === staging.r2_buckets[0].bucket_name));
@@ -44,6 +45,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     assert.deepEqual(built.vars, staging.vars);
     assert.deepEqual(built.r2_buckets, staging.r2_buckets);
     assert.deepEqual(built.routes, staging.routes);
+    assert.deepEqual(built.limits, staging.limits);
     assert.equal(built.d1_databases.length, 1);
     assert.equal(built.d1_databases[0].database_id, stagingDatabaseId, "Build selected the wrong D1 database.");
     assert.equal(built.d1_databases[0].binding, "trice_auction_db");

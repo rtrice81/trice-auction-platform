@@ -55,6 +55,7 @@ test("staging config and seed refuse production resources and target overrides",
     c => c.env.staging.r2_buckets = c.r2_buckets,
     c => c.env.staging.vars.BETTER_AUTH_URL = "https://consign.bidtrice.com",
     c => c.env.staging.vars.NOTIFICATION_MODE = "live",
+    c => c.env.staging.limits.cpu_ms = 10,
   ]) { const config = readConfig(); mutate(config); assert.throws(() => validateStagingConfig(config)); }
   validateSeedArguments(["--env", "staging", "--remote"]);
   for (const args of [[], ["--env", "production", "--remote"], ["--env", "staging", "--remote", "--config", "production.json"]]) assert.throws(() => validateSeedArguments(args));

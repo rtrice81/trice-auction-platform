@@ -3,6 +3,11 @@
 The existing application deploys to the default production Worker or `env.staging`.
 There is no application copy. Staging targets `https://staging-consign.bidtrice.com`.
 
+Staging requires Workers Paid and explicitly sets `limits.cpu_ms=1000` (one second
+of CPU per invocation). This bounded allowance covers authentication and SSR;
+waiting on D1/network I/O does not consume CPU time. Production CPU configuration
+is unchanged. The staging config and generated build checks verify this limit.
+
 ## Resources and provisioning status
 
 | Resource | Production | Staging |
