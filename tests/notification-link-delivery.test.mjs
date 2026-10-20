@@ -27,6 +27,18 @@ const env = {
   TELNYX_API_KEY: "test-key", TELNYX_FROM_NUMBER: "+15555550123",
 };
 
+test("staging queue delivery and admin test sends suppress email and SMS despite live credentials", async t => {
+  t.mock.method(globalThis, "fetch", async () => { throw new Error("Staging must not contact notification providers"); });
+  const runtime = { ...env, APP_ENV: "staging", NOTIFICATION_MODE: "log", APP_BASE_URL: "https://staging-consign.bidtrice.com" };
+  for (const channel of ["email", "sms"]) {
+    const db = fakeDb(channel, "Reminder: {{appointment_link}}");
+    await service.processDueNotificationJobs(db, runtime);
+    assert.ok(db.writes.some(write => write.sql.includes("status='sent'") && write.values[0] === `suppressed:${channel}`));
+    const result = await service.sendTestNotification(db, runtime, { channel, destination: "synthetic@example.invalid", notificationType: "reminder_1" });
+    assert.equal(result.providerMessageId, `suppressed:${channel}`);
+  }
+});
+
 function fakeDb(channel, body = "Custom reminder: https://consign.bidtrice.com/{{appointment_link}}") {
   const writes = [];
   const template = { notificationType: "reminder_1", channel, subject: "View https://consign.bidtrice.com/{{appointment_link}}", body };

@@ -1,4 +1,5 @@
 import { createRequestHandler } from "react-router";
+import { assertStagingConfiguration } from "../app/lib/environment-policy";
 import { handleSmsKeyword, processDueNotificationJobs } from "../app/services/notification.server";
 
 const requestHandler = createRequestHandler(
@@ -8,6 +9,8 @@ const requestHandler = createRequestHandler(
 
 export default {
   async fetch(request, env) {
+    try { assertStagingConfiguration(env, request); }
+    catch { return new Response("Invalid staging configuration or origin.", { status: 503 }); }
     const url = new URL(request.url);
     if (url.pathname === "/webhooks/telnyx/sms" && request.method === "POST") {
       const config = env as Env & { TELNYX_WEBHOOK_PUBLIC_KEY?: string };
@@ -20,6 +23,7 @@ export default {
     return requestHandler(request);
   },
   async scheduled(_controller, env) {
+    assertStagingConfiguration(env);
     await processDueNotificationJobs(env.trice_auction_db, env as never);
   },
 } satisfies ExportedHandler<Env>;

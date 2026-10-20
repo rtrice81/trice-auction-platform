@@ -8,6 +8,7 @@
 	"compatibility_date": "2026-08-25",
 	"main": "./workers/app.ts",
 	"vars": {
+  "APP_ENV": "production",
   "VALUE_FROM_CLOUDFLARE": "Hello from Cloudflare",
   "TURNSTILE_SITE_KEY": "0x4AAAAAAEjhsjITMtiykQdg"
 },
@@ -29,7 +30,32 @@
 			"bucket_name": "trice-auction-branding"
 		}
 	]
-	,"triggers": { "crons": ["*/5 * * * *"] }
+	,"triggers": { "crons": ["*/5 * * * *"] },
+	"env": {
+		"staging": {
+			"name": "trice-auction-platform-staging",
+			"workers_dev": false,
+			"preview_urls": false,
+			"routes": [{ "pattern": "staging-consign.bidtrice.com", "custom_domain": true }],
+			"vars": {
+				"APP_ENV": "staging",
+				"VALUE_FROM_CLOUDFLARE": "Hello from Cloudflare",
+				"BETTER_AUTH_URL": "https://staging-consign.bidtrice.com",
+				"APP_BASE_URL": "https://staging-consign.bidtrice.com",
+				"NOTIFICATION_MODE": "log",
+				"TURNSTILE_MODE": "test",
+				"TURNSTILE_SITE_KEY": "1x00000000000000000000AA"
+			},
+			"d1_databases": [{
+				"binding": "trice_auction_db",
+				"database_name": "trice-auction-db-staging",
+				"database_id": "efa20592-936f-4673-be20-814f7534c3b2",
+				"migrations_dir": "migrations"
+			}],
+			"r2_buckets": [{ "binding": "branding_assets", "bucket_name": "trice-auction-branding-staging" }],
+			"triggers": { "crons": ["*/5 * * * *"] }
+		}
+	}
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

@@ -1,5 +1,6 @@
 import { betterAuth } from "better-auth";
 import { redirect } from "react-router";
+import { stagingAuthOptions, type EnvironmentPolicy } from "../lib/environment-policy";
 import { hasAnyRole, hasRole, ROLES, type Role } from "../lib/roles";
 
 export { hasAnyRole, hasRole, ROLES, type Role } from "../lib/roles";
@@ -14,7 +15,7 @@ const ROLE_PERMISSIONS = {
 
 export type ApplicationUser = { id: number; authUserId: string; email: string; name: string; roles: Role[]; active: boolean; mustChangePassword: boolean };
 
-type AuthEnvironment = { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
+type AuthEnvironment = EnvironmentPolicy & { AUTH_SECRET?: string };
 
 // The public custom domain proxies this Worker, but Better Auth still needs to
 // accept its browser Origin for email/password requests.
@@ -32,6 +33,7 @@ function createAuth(db: D1Database, authEnv: AuthEnvironment & { AUTH_SECRET: st
     trustedOrigins: PUBLIC_AUTH_ORIGINS,
     emailAndPassword: { enabled: true },
     advanced: { useSecureCookies: import.meta.env.PROD },
+    ...stagingAuthOptions(authEnv),
   });
 }
 
@@ -39,17 +41,19 @@ let cachedAuth: ReturnType<typeof createAuth> | undefined;
 let cachedAuthDb: D1Database | undefined;
 let cachedAuthSecret: string | undefined;
 let cachedAuthBaseUrl: string | undefined;
+let cachedAuthEnvironment: string | undefined;
 
 export function getAuth(db: D1Database, authEnv: AuthEnvironment = {}) {
   if (!authEnv.AUTH_SECRET) throw new Error("AUTH_SECRET must be configured.");
-  if (cachedAuth && cachedAuthDb === db && cachedAuthSecret === authEnv.AUTH_SECRET && cachedAuthBaseUrl === authEnv.BETTER_AUTH_URL) {
+  if (cachedAuth && cachedAuthDb === db && cachedAuthSecret === authEnv.AUTH_SECRET && cachedAuthBaseUrl === authEnv.BETTER_AUTH_URL && cachedAuthEnvironment === authEnv.APP_ENV) {
     return cachedAuth;
   }
-  const auth = createAuth(db, { AUTH_SECRET: authEnv.AUTH_SECRET, BETTER_AUTH_URL: authEnv.BETTER_AUTH_URL });
+  const auth = createAuth(db, { ...authEnv, AUTH_SECRET: authEnv.AUTH_SECRET });
   cachedAuth = auth;
   cachedAuthDb = db;
   cachedAuthSecret = authEnv.AUTH_SECRET;
   cachedAuthBaseUrl = authEnv.BETTER_AUTH_URL;
+  cachedAuthEnvironment = authEnv.APP_ENV;
   return auth;
 }
 

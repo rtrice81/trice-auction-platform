@@ -1,8 +1,10 @@
+import { STAGING_ORIGIN, type EnvironmentPolicy } from "../lib/environment-policy";
+
 const FORM_COOKIE_PREFIX = "trice_public_form_";
 const FORM_TOKEN_MAX_AGE_MS = 30 * 60 * 1000;
 const MIN_COMPLETION_MS = 2_000;
 
-type Runtime = {
+type Runtime = EnvironmentPolicy & {
   AUTH_SECRET?: string;
   TURNSTILE_SECRET_KEY?: string;
 };
@@ -67,7 +69,17 @@ async function validFormStartToken(token: string, form: ProtectedForm, runtime: 
   return Number(match[2]);
 }
 
-async function verifyTurnstile(token: string, request: Request, runtime: Runtime) {
+export async function verifyTurnstile(token: string, request: Request, runtime: Runtime) {
+  const testSecret = /^[123]x0{31}AA$/.test(runtime.TURNSTILE_SECRET_KEY ?? "");
+  const productionHost = new URL(request.url).hostname === "consign.bidtrice.com";
+  if (testSecret || runtime.TURNSTILE_MODE === "test") {
+    // Official test keys must never validate submissions on production, even
+    // if a test secret is accidentally installed there. Local dev stays supported.
+    const local = runtime.APP_ENV !== "production" && ["localhost", "127.0.0.1"].includes(new URL(request.url).hostname);
+    const staging = runtime.APP_ENV === "staging" && runtime.TURNSTILE_MODE === "test"
+      && runtime.BETTER_AUTH_URL === STAGING_ORIGIN && new URL(request.url).origin === STAGING_ORIGIN;
+    if (productionHost || (!local && !staging)) return false;
+  }
   if (!token || !runtime.TURNSTILE_SECRET_KEY) {
     console.warn("turnstile-siteverify-failed", { success: false, "error-codes": [!token ? "missing-response-token" : "missing-secret"] });
     return false;
