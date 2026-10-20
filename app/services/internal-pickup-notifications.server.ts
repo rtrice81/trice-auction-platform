@@ -27,7 +27,7 @@ export async function safelyQueuePickupNotifications(db: D1Database, pickupId: n
     const { results: settings } = await db.prepare("SELECT key,value FROM settings WHERE key LIKE 'notifications.%'").all<{ key: string; value: string }>();
     const enabled = Object.fromEntries(settings.map(item => [item.key, item.value]));
     if (enabled["notifications.email_enabled"] === "0") return;
-    const customer = await db.prepare(`SELECT COALESCE(NULLIF(TRIM(first_name || ' ' || last_name), ''), email) AS customerName, consignor_id AS consignorNumber FROM users WHERE id=?`).bind(current.customerId).first<{ customerName: string; consignorNumber: string | null }>();
+    const customer = await db.prepare(`SELECT COALESCE(NULLIF(TRIM(first_name || ' ' || last_name), ''), email) AS customerName, consignor_id AS consignorNumber, email AS customerEmail FROM users WHERE id=?`).bind(current.customerId).first<{ customerName: string; consignorNumber: string | null; customerEmail: string }>();
     const actor = await db.prepare("SELECT COALESCE(NULLIF(TRIM(first_name || ' ' || last_name), ''), email) AS name FROM users WHERE id=?").bind(actorId).first<{ name: string }>();
     if (!customer) throw new Error("Pickup customer unavailable");
     const payload: PickupNotificationPayload = { pickupId, current, previous, ...customer, actorName: actor?.name || "Administrator", occurredAt: new Date().toISOString() };
@@ -37,8 +37,9 @@ export async function safelyQueuePickupNotifications(db: D1Database, pickupId: n
       // event is selected from the fixed allowlist above, never from user input.
       const subscription = `receive_${event}`;
       const { results } = await db.prepare(`SELECT label,email FROM appointment_notification_recipients WHERE active=1 AND ${subscription}=1`).all<{ label: string; email: string }>();
-      if (!results.length) continue;
-      await db.batch(results.map(recipient => db.prepare(`INSERT INTO notification_jobs(idempotency_key,notification_type,channel,recipient,payload_json,scheduled_at)
+      const internalRecipients = results.filter(recipient => recipient.email.trim().toLowerCase() !== customer.customerEmail.trim().toLowerCase());
+      if (!internalRecipients.length) continue;
+      await db.batch(internalRecipients.map(recipient => db.prepare(`INSERT INTO notification_jobs(idempotency_key,notification_type,channel,recipient,payload_json,scheduled_at)
         VALUES(?,?,'email',?,?,CURRENT_TIMESTAMP) ON CONFLICT(idempotency_key) DO NOTHING`).bind(
           `${event}:${pickupId}:${revision}:${recipient.email}`, event, recipient.email, JSON.stringify({ ...payload, recipientLabel: recipient.label }),
         )));
@@ -59,7 +60,9 @@ export function pickupTemplateContext(payload: PickupNotificationPayload, baseUr
     const [hour, minute] = value.split(":").map(Number);
     return `${hour % 12 || 12}:${String(minute).padStart(2, "0")} ${hour < 12 ? "AM" : "PM"} (America/New_York)`;
   };
+  const adminPickupUrl = new URL(`/admin/pickups/${payload.pickupId}`, baseUrl).href;
   return {
+    pickupUrl: adminPickupUrl, // Legacy internal templates only.
     customerName: payload.customerName, consignorNumber: payload.consignorNumber || "Not provided",
     pickupTitle: p.title, pickupDate: date(p.pickupDate), pickupTime: time(p.arrivalTime),
     pickupAddress: [p.addressLine1, p.addressLine2, `${p.city}, ${p.state} ${p.postalCode}`].filter(Boolean).join(", "),
@@ -68,6 +71,6 @@ export function pickupTemplateContext(payload: PickupNotificationPayload, baseUr
     previousPickupDate: previous ? date(previous.pickupDate) : "", previousPickupTime: previous ? time(previous.arrivalTime) : "",
     actorName: payload.actorName,
     completedAt: new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", dateStyle: "long", timeStyle: "long" }).format(new Date(payload.occurredAt)),
-    pickupUrl: new URL(`/admin/pickups/${payload.pickupId}`, baseUrl).href,
+    adminPickupUrl,
   };
 }

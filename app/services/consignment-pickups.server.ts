@@ -1,3 +1,4 @@
+import { safelyQueueCustomerPickupNotifications } from "./customer-pickup-notifications.server";
 import { safelyQueuePickupNotifications, type PickupSchedule } from "./internal-pickup-notifications.server";
 import { PICKUP_STATUSES, type PickupStatus } from "../lib/consignment-pickup-status";
 export { PICKUP_STATUSES, type PickupStatus } from "../lib/consignment-pickup-status";
@@ -53,6 +54,7 @@ export async function savePickup(db: D1Database, input: PickupInput, createdByUs
   else { const result = await db.prepare(`INSERT INTO consignment_pickups (user_id,title,pickup_date,arrival_time,estimated_duration_minutes,status,contact_name,contact_phone,address_line1,address_line2,city,state,postal_code,access_instructions,estate_description,estimated_load_size,estimated_smalls_percent,estimated_large_percent,estimated_outdoor_percent,internal_notes,created_by_user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(...values, createdByUserId).run(); id = Number(result.meta.last_row_id); }
   await db.batch([db.prepare("DELETE FROM consignment_pickup_assignments WHERE pickup_id = ?").bind(id), ...input.assignedUserIds.map((userId) => db.prepare("INSERT INTO consignment_pickup_assignments (pickup_id, user_id, assigned_by_user_id) VALUES (?, ?, ?)").bind(id, userId, createdByUserId))]);
   await safelyQueuePickupNotifications(db, id!, input, previous, createdByUserId);
+  await safelyQueueCustomerPickupNotifications(db, id!, input, previous);
   return id!;
 }
 function text(form: FormData, name: string) { return String(form.get(name) ?? "").trim(); }

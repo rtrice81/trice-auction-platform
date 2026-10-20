@@ -53,7 +53,7 @@ const input = {
   contactName: "Alex", contactPhone: "5555550123", addressLine1: "123 Estate Lane", addressLine2: "", city: "Denton", state: "MD", postalCode: "21629",
   accessInstructions: "", estateDescription: "", estimatedLoadSize: "Box truck", estimatedSmallsPercent: "40", estimatedLargePercent: "50", estimatedOutdoorPercent: "10", internalNotes: "", assignedUserIds: [],
 };
-const jobs = db => db.sql.prepare("SELECT * FROM notification_jobs ORDER BY id").all();
+const jobs = db => db.sql.prepare("SELECT * FROM notification_jobs WHERE notification_type LIKE 'pickup_%' ORDER BY id").all();
 const environment = { APP_BASE_URL: "https://consign.bidtrice.com", RESEND_API_KEY: "test-secret", RESEND_FROM_EMAIL: "test@example.test" };
 
 test("create queues exactly one configured internal email and worker uses editable templates", async t => {
@@ -64,7 +64,7 @@ test("create queues exactly one configured internal email and worker uses editab
   assert.equal(jobs(db)[0].recipient, "office@example.test");
   assert.equal(jobs(db)[0].user_id, null);
   const sent = [];
-  t.mock.method(globalThis, "fetch", async (_url, options) => { sent.push(JSON.parse(options.body)); return Response.json({ id: "message-1" }); });
+  t.mock.method(globalThis, "fetch", async (_url, options) => { const message = JSON.parse(options.body); if (message.to === "office@example.test") sent.push(message); return Response.json({ id: "message-1" }); });
   await notifications.processDueNotificationJobs(db, environment);
   await notifications.processDueNotificationJobs(db, environment);
   assert.equal(sent.length, 1);
@@ -150,7 +150,7 @@ test("queue failure never rolls back creation or later pickup changes and logs n
   const id = await pickup.savePickup(db, input, 2);
   await pickup.savePickup(db, { ...input, status: "cancelled" }, 2, id);
   assert.equal(db.sql.prepare("SELECT status FROM consignment_pickups WHERE id=?").get(id).status, "cancelled");
-  assert.equal(errors.length, 2);
+  assert.equal(errors.length, 4);
   assert.doesNotMatch(JSON.stringify(errors), /test-secret/);
 });
 
