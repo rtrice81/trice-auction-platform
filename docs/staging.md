@@ -154,7 +154,8 @@ needed; existing `admin:*` scripts target production/default local data and must
 ## Load-test behavior and safety checks
 
 After the manual smoke test passes, use the
-[five-customer concurrency smoke test](staging-smoke.md): `npm run smoke:staging`.
+[staging concurrency smoke tests](staging-smoke.md): `npm run smoke:staging`
+(five customers), or append `-- --customers 20` for twenty.
 It has a no-write preflight and creates separate disposable test credentials.
 
 Email and SMS providers suppress external requests whenever `APP_ENV=staging`,

@@ -6,11 +6,13 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
 import { stripVTControlCharacters } from "node:util";
+import { setTimeout as delay } from "node:timers/promises";
 import { hashPassword } from "better-auth/crypto";
 import { projectRoot, readConfig, validateStagingConfig } from "./staging-config.mjs";
 
 export const STAGING_ORIGIN = "https://staging-consign.bidtrice.com";
 export const CUSTOMERS = 5;
+export const LOGIN_INTERVAL_MS = 4_000;
 const quote = value => `'${String(value).replaceAll("'", "''")}'`;
 class SmokeError extends Error {}
 const requireCheck = (condition, message) => { if (!condition) throw new SmokeError(message); };
@@ -22,8 +24,24 @@ export function stagingUrl(path) {
 }
 
 export function validateSmokeArguments(args) {
-  requireCheck(args.length === 3 || (args.length === 4 && args[3] === "--preflight"), "Use --env staging --remote [--preflight]; target overrides are forbidden.");
   requireCheck(args[0] === "--env" && args[1] === "staging" && args[2] === "--remote", "Only the remote staging environment is supported.");
+  let customers = CUSTOMERS;
+  let preflight = false;
+  let countSpecified = false;
+  for (let index = 3; index < args.length; index++) {
+    if (args[index] === "--preflight" && !preflight) preflight = true;
+    else if (args[index] === "--customers" && !countSpecified && ["5", "20"].includes(args[index + 1])) {
+      customers = Number(args[++index]);
+      countSpecified = true;
+    } else throw new SmokeError("Use --env staging --remote [--customers 5|20] [--preflight]; target overrides and other load sizes are forbidden.");
+  }
+  return { customers, preflight };
+}
+
+export function smokeUserIds(runId, customers = CUSTOMERS) {
+  requireCheck(/^staging-smoke-\d+-[a-f0-9]{8}$/.test(runId), "Invalid synthetic run identifier.");
+  requireCheck([5, 20].includes(customers), "Only 5 or 20 smoke-test customers are supported.");
+  return Array.from({ length: customers }, (_, index) => `${runId}-${index + 1}`);
 }
 
 export function assertAccessible(response) {
@@ -48,7 +66,15 @@ export class StagingClient {
     try {
       response = await this.fetcher(url, { ...options, headers, redirect: "manual", signal: AbortSignal.timeout(30_000) });
     } catch { throw new SmokeError(`HTTP request to staging ${url.pathname} failed or timed out.`); }
-    this.timings.push({ path: url.pathname, method: options.method ?? "GET", status: response.status, durationMs: Math.round(performance.now() - started) });
+    const timing = { path: url.pathname, method: options.method ?? "GET", status: response.status, durationMs: Math.round(performance.now() - started), ray: response.headers.get("cf-ray") };
+    this.timings.push(timing);
+    if (response.status >= 500) {
+      // Classify edge errors without retaining HTML, customer data or tokens.
+      const text = (await response.clone().text()).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
+      timing.edgeErrorCode = text.match(/Error\s*(?:code:?\s*)?(1\d{3})\b/i)?.[1];
+      timing.workerResourceLimit = /Worker exceeded resource limits/i.test(text);
+      timing.workerException = /Worker threw exception/i.test(text);
+    }
     for (const cookie of response.headers.getSetCookie()) {
       const pair = cookie.split(";", 1)[0];
       const separator = pair.indexOf("=");
@@ -92,11 +118,10 @@ function d1(sql, privateSql = false) {
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }
 
-export function smokeFixtureSql(runId, passwordHash) {
-  requireCheck(/^staging-smoke-\d+-[a-f0-9]{8}$/.test(runId), "Invalid synthetic run identifier.");
+export function smokeFixtureSql(runId, passwordHash, customers = CUSTOMERS) {
   const statements = [];
-  for (let i = 1; i <= CUSTOMERS; i++) {
-    const id = `${runId}-${i}`;
+  for (const [index, id] of smokeUserIds(runId, customers).entries()) {
+    const i = index + 1;
     const email = `${id}@example.invalid`;
     statements.push(`INSERT INTO "user"(id,name,email,emailVerified,createdAt,updatedAt) VALUES(${quote(id)},'[STAGING SMOKE] Customer ${i}',${quote(email)},1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP);`);
     statements.push(`INSERT INTO account(id,accountId,providerId,issuer,userId,password,createdAt,updatedAt) VALUES(${quote(id)},${quote(id)},'credential','local:credential',${quote(id)},${quote(passwordHash)},CURRENT_TIMESTAMP,CURRENT_TIMESTAMP);`);
@@ -114,10 +139,10 @@ function capacitySnapshot(date, areaId) {
     COALESCE((SELECT SUM(reserved_smalls_points) FROM booking_holds h JOIN dropoff_days d ON d.id=h.dropoff_day_id WHERE d.dropoff_date=${quote(date)} AND h.status='active' AND h.expires_at>CURRENT_TIMESTAMP AND h.appointment_status='scheduled'),0) AS heldArea;`)[0];
 }
 
-export function verifyRunBookings(rows, points) {
-  requireCheck(rows.length === CUSTOMERS, `Expected exactly ${CUSTOMERS} bookings; found ${rows.length}.`);
-  requireCheck(new Set(rows.map(row => row.userId)).size === CUSTOMERS, "A customer has duplicate bookings or another customer is missing.");
-  requireCheck(new Set(rows.map(row => row.holdId)).size === CUSTOMERS && rows.every(row => row.holdId), "Booking holds were reused or missing.");
+export function verifyRunBookings(rows, points, customers = CUSTOMERS) {
+  requireCheck(rows.length === customers, `Expected exactly ${customers} bookings; found ${rows.length}.`);
+  requireCheck(new Set(rows.map(row => row.userId)).size === customers, "A customer has duplicate bookings or another customer is missing.");
+  requireCheck(new Set(rows.map(row => row.holdId)).size === customers && rows.every(row => row.holdId), "Booking holds were reused or missing.");
   for (const row of rows) {
     requireCheck(row.status === "scheduled" && row.holdStatus === "converted", "A booking or hold has the wrong final status.");
     requireCheck(row.percent === 100 && row.points === points, "Booking allocation/capacity accounting is incorrect.");
@@ -127,11 +152,11 @@ export function verifyRunBookings(rows, points) {
 async function concurrentStep(clients, label, step) {
   const results = await Promise.allSettled(clients.map(step));
   const failed = results.filter(result => result.status === "rejected");
-  requireCheck(!failed.length, `${failed.length} of ${CUSTOMERS} customers failed during concurrent ${label}. Inspect the recorded HTTP statuses; partial fixtures are retained.`);
+  requireCheck(!failed.length, `${failed.length} of ${clients.length} customers failed during concurrent ${label}. Inspect the recorded HTTP statuses; partial fixtures are retained.`);
 }
 
 async function main() {
-  validateSmokeArguments(process.argv.slice(2));
+  const { customers, preflight } = validateSmokeArguments(process.argv.slice(2));
   try { validateStagingConfig(readConfig()); }
   catch { throw new SmokeError("Staging configuration validation failed. Run npm run staging:check. No test requests were made."); }
   const probe = new StagingClient();
@@ -139,7 +164,7 @@ async function main() {
   assertAccessible(response);
   requireCheck((await response.text()).includes('name="password"'), "Staging did not return the application's login form.");
   console.log("Staging HTTP preflight passed.");
-  if (process.argv.includes("--preflight")) return;
+  if (preflight) return;
   requireCheck(d1("SELECT value FROM settings WHERE key='environment.marker';")[0]?.value === "staging", "Staging database marker is missing. Seed staging first.");
   const day = d1(`SELECT d.id,d.dropoff_date AS date,d.daily_capacity_override AS dailyCapacity,o.capacity_points_override AS areaCapacity
     FROM dropoff_days d JOIN booking_event_dropoff_dates link ON link.dropoff_day_id=d.id JOIN booking_events e ON e.id=link.booking_event_id
@@ -153,27 +178,34 @@ async function main() {
   const smalls = areas.find(area => area.name === "Smalls");
   requireCheck(loadType && smalls, "Seeded load types or Smalls area are missing.");
   const before = capacitySnapshot(day.date, smalls.id);
-  const expected = CUSTOMERS * loadType.points;
-  requireCheck(before.bookedDaily + before.heldDaily + expected <= day.dailyCapacity && before.bookedArea + before.heldArea + expected <= day.areaCapacity, "The selected staging date lacks enough spare capacity for five bookings.");
+  const expected = customers * loadType.points;
+  requireCheck(before.bookedDaily + before.heldDaily + expected <= day.dailyCapacity && before.bookedArea + before.heldArea + expected <= day.areaCapacity, `The selected staging date lacks enough spare capacity for ${customers} bookings.`);
   const runId = `staging-smoke-${Date.now()}-${randomBytes(4).toString("hex")}`;
   const marker = `[STAGING SMOKE] ${runId}`;
-  const report = { runId, origin: STAGING_ORIGIN, customers: CUSTOMERS, date: day.date, pointsPerBooking: loadType.points, before, checks: {}, passed: false };
-  const clients = Array.from({ length: CUSTOMERS }, () => new StagingClient());
+  const userIds = smokeUserIds(runId, customers).map(quote).join(",");
+  const report = { runId, origin: STAGING_ORIGIN, customers, date: day.date, pointsPerBooking: loadType.points, before, checks: {}, passed: false };
+  const clients = Array.from({ length: customers }, () => new StagingClient());
   const directory = new URL("test-results/staging-smoke/", projectRoot);
   try {
     const password = randomBytes(32).toString("base64url");
-    d1(smokeFixtureSql(runId, await hashPassword(password)), true);
-    console.log(`Created five isolated synthetic customers for ${runId}. Password remains in memory; existing seeded passwords are unchanged.`);
+    d1(smokeFixtureSql(runId, await hashPassword(password), customers), true);
+    console.log(`Created ${customers} isolated synthetic customers for ${runId}. Password remains in memory; existing seeded passwords are unchanged.`);
     // Authenticate sequentially, then synchronize actual reservation/completion
     // work. This keeps login bursts out of the booking concurrency measurement.
+    let previousLoginStarted = 0;
     for (let index = 0; index < clients.length; index++) {
+      // At least four seconds between login starts stays below the installed
+      // Better Auth sensitive-endpoint limit of three requests per ten seconds.
+      if (index > 0) await delay(Math.max(0, LOGIN_INTERVAL_MS - (performance.now() - previousLoginStarted)));
+      previousLoginStarted = performance.now();
       const client = clients[index];
       const login = await client.request("/api/auth/sign-in/email", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: `${runId}-${index + 1}@example.invalid`, password }) });
       requireCheck(login.status === 200 && /__Secure-trice-staging\.session_token=/.test(client.cookieHeader()), `Customer ${index + 1} login did not establish an isolated staging session (HTTP ${login.status}).`);
       await login.arrayBuffer();
       const page = await client.request(`/dropoffs/${day.id}/book`);
-      requireCheck(page.status === 200 && (await page.text()).includes('value="reserve"'), `Customer ${index + 1} could not load the booking form.`);
+      requireCheck(page.status === 200 && (await page.text()).includes('value="reserve"'), `Customer ${index + 1} could not load the booking form (HTTP ${page.status}).`);
       requireCheck(client.cookies.has("trice_booking_attempt"), "Booking form did not establish a booking attempt cookie.");
+      if ((index + 1) % 5 === 0) console.log(`Authenticated ${index + 1}/${customers} customers; booking requests have not started.`);
     }
     const form = intent => new URLSearchParams({ intent, appointmentDate: day.date, dropoffTypeId: String(loadType.id), description: marker,
       ...Object.fromEntries(areas.map(area => [`allocation-${area.id}`, area.id === smalls.id ? "100" : "0"])) });
@@ -183,8 +215,8 @@ async function main() {
       requireCheck(reserved.status === 200, `Reservation failed (HTTP ${reserved.status}).`);
       await reserved.arrayBuffer();
     });
-    const held = d1(`SELECT COUNT(*) AS holds,SUM(h.reserved_daily_intake_points) AS points FROM booking_holds h JOIN users u ON u.id=h.user_id WHERE u.auth_user_id GLOB ${quote(`${runId}-[1-5]`)} AND h.status='active' AND h.expires_at>CURRENT_TIMESTAMP;`)[0];
-    requireCheck(held.holds === CUSTOMERS && held.points === expected, "Concurrent reservations did not produce exactly five active holds with correct points.");
+    const held = d1(`SELECT COUNT(*) AS holds,SUM(h.reserved_daily_intake_points) AS points FROM booking_holds h JOIN users u ON u.id=h.user_id WHERE u.auth_user_id IN (${userIds}) AND h.status='active' AND h.expires_at>CURRENT_TIMESTAMP;`)[0];
+    requireCheck(held.holds === customers && held.points === expected, `Concurrent reservations did not produce exactly ${customers} active holds with correct points.`);
     report.checks.reservations = true;
     const originalCookie = clients[0].cookieHeader();
     await concurrentStep(clients, "completion", async client => {
@@ -198,21 +230,21 @@ async function main() {
     const bookings = d1(`SELECT a.id,a.user_id AS userId,a.status,a.booking_hold_id AS holdId,h.status AS holdStatus,SUM(x.allocation_percent) AS percent,SUM(x.capacity_points) AS points
       FROM appointments a JOIN booking_holds h ON h.id=a.booking_hold_id JOIN appointment_area_allocations x ON x.appointment_id=a.id
       WHERE a.description=${quote(marker)} GROUP BY a.id ORDER BY a.id;`);
-    verifyRunBookings(bookings, loadType.points);
+    verifyRunBookings(bookings, loadType.points, customers);
     report.appointmentIds = bookings.map(booking => booking.id);
-    report.checks.fiveBookingsAndDuplicateReplay = true;
+    report.checks.bookingsAndDuplicateReplay = true;
     const after = capacitySnapshot(day.date, smalls.id);
-    requireCheck(after.bookedDaily - before.bookedDaily === expected && after.bookedArea - before.bookedArea === expected, "Date capacity did not increase by exactly five loads; check for other staging traffic during the test.");
-    requireCheck(d1(`SELECT COUNT(*) AS active FROM booking_holds h JOIN users u ON u.id=h.user_id WHERE u.auth_user_id GLOB ${quote(`${runId}-[1-5]`)} AND h.status='active';`)[0].active === 0, "Converted holds still consume active capacity.");
+    requireCheck(after.bookedDaily - before.bookedDaily === expected && after.bookedArea - before.bookedArea === expected, `Date capacity did not increase by exactly ${customers} loads; check for other staging traffic during the test.`);
+    requireCheck(d1(`SELECT COUNT(*) AS active FROM booking_holds h JOIN users u ON u.id=h.user_id WHERE u.auth_user_id IN (${userIds}) AND h.status='active';`)[0].active === 0, "Converted holds still consume active capacity.");
     report.after = after;
     report.checks.capacityAccounting = true;
     report.notifications = d1(`SELECT notification_type,channel,status,provider_message_id,COUNT(*) AS total FROM notification_jobs WHERE appointment_id IN (${bookings.map(booking => booking.id).join(",")}) GROUP BY notification_type,channel,status,provider_message_id;`);
     requireCheck(report.notifications.every(job => job.status !== "sent" || job.provider_message_id === `suppressed:${job.channel}`), "A sent notification lacks the staging suppression marker.");
     const confirmations = d1(`SELECT COUNT(DISTINCT appointment_id) AS total FROM notification_jobs WHERE appointment_id IN (${bookings.map(booking => booking.id).join(",")}) AND notification_type='confirmation' AND channel='email' AND status='sent' AND provider_message_id='suppressed:email';`)[0].total;
-    requireCheck(confirmations === CUSTOMERS, "Not all five confirmation emails were recorded as suppressed. Inspect staging notification settings and queue backlog.");
+    requireCheck(confirmations === customers, `Not all ${customers} confirmation emails were recorded as suppressed. Inspect staging notification settings and queue backlog.`);
     report.checks.notificationsSuppressed = true;
     report.passed = true;
-    console.log(`PASS: five concurrent reservations, five completed bookings, duplicate replay created no extra booking, +${expected} daily/Smalls capacity points, five suppressed email confirmations.`);
+    console.log(`PASS: ${customers} concurrent reservations, ${customers} completed bookings, duplicate replay created no extra booking, +${expected} daily/Smalls capacity points, ${customers} suppressed email confirmations.`);
   } catch (error) {
     report.error = error instanceof SmokeError ? error.message : "Unexpected smoke-test failure; raw diagnostics withheld to protect generated credentials.";
     throw new SmokeError(report.error);

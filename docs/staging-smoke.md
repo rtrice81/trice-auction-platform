@@ -1,15 +1,17 @@
-# Five-customer staging concurrency smoke test
+# Staging concurrency smoke tests
 
 Run after the manual smoke test, staging deployment, and seed have passed:
 
 ```sh
 npm run smoke:staging -- --preflight
 npm run smoke:staging
+npm run smoke:staging -- --customers 20
 ```
 
 The runner uses Node's HTTP client and the installed Wrangler/Better Auth
 dependencies. It does not require k6 or any new packages. This is a small
-correctness test with five customers, not a throughput benchmark.
+correctness test with five customers by default, or 20 when explicitly selected.
+Other load sizes are refused. This is not a throughput benchmark.
 
 ## What happens
 
@@ -20,29 +22,33 @@ correctness test with five customers, not a throughput benchmark.
    `--preflight` option stops here and creates no fixtures.
 3. Read staging's database marker and select the latest future seeded drop-off
    date belonging to `[STAGING] Load test`. Confirm spare daily/Smalls capacity
-   for five loads. Keep other booking activity off that date during the test.
-4. Create five **new** `[STAGING SMOKE]` consignors with unique `example.invalid`
+   for the selected number of loads. Keep other booking activity off that date
+   during the test.
+4. Create the selected number of **new** `[STAGING SMOKE]` consignors with unique `example.invalid`
    addresses and valid Better Auth credential issuers. A random shared password
    exists only in process memory; it is never printed, written in plaintext, or
    applied to the original 100 seed customers. Hash SQL uses a private temporary
    file that is removed afterward.
-5. Log in those five customers sequentially, with separate cookie jars. Load the
-   real booking forms to obtain separate booking-attempt cookies.
-6. Submit five reservation requests concurrently through the application's
-   `/dropoffs/:id/book` action; verify five active holds and their total points.
-7. Submit five completion requests concurrently. Replay one completion using its
+5. Log in customers sequentially, with separate cookie jars and at least four
+   seconds between login starts. The installed Better Auth version limits
+   sensitive endpoints to three requests per ten seconds. Twenty logins take
+   at least 76 seconds; booking concurrency begins only after all have logged in.
+   Load the real booking forms to obtain separate booking-attempt cookies.
+6. Submit all reservation requests concurrently through the application's
+   `/dropoffs/:id/book` action; verify the expected active holds and total points.
+7. Submit all completion requests concurrently. Replay one completion using its
    original booking-attempt cookie to check duplicate replay protection. This
    replay is sequential; a simultaneous duplicate-submit race is a later test.
-8. Query staging D1 to verify exactly one scheduled booking per customer, five
+8. Query staging D1 to verify exactly one scheduled booking per customer,
    distinct converted holds, 100% allocations, the expected capacity-point
    increase, and zero remaining active holds for this run.
-9. Verify all five bookings have suppressed email confirmations, and every sent
+9. Verify all bookings have suppressed email confirmations, and every sent
    notification for these bookings has a `suppressed:email` or `suppressed:sms`
    provider marker. Future pending reminders and cancelled jobs are allowed.
 
 The selected load is the cheapest active load type, allocated 100% to Smalls.
 With the current seed configuration, five Car Loads consume 50 daily and 50
-Smalls capacity points. This checks accounting under spare capacity; testing the
+Smalls capacity points; twenty consume 200 points each. This checks accounting under spare capacity; testing the
 last-slot boundary and over-capacity rejection requires a separate scenario.
 
 The runner never follows HTTP redirects automatically. Its origin is hardcoded to
@@ -78,16 +84,45 @@ file-import command printed progress before its JSON result, despite `--json`.
 It created no bookings. The parser now handles that output and has a regression
 test. The original 100 seeded account passwords were unchanged throughout.
 
-The five accounts and bookings remain in staging for inspection, labeled with the
+### Twenty-customer attempt — October 20, 2026
+
+The 20-customer scenario did **not** reach the concurrent booking phase:
+
+- `staging-smoke-1792538811951-89eb51b9`: stopped on customer 10's booking-page
+  GET with HTTP 503 after successful logins. No reservation/completion POSTs ran.
+- `staging-smoke-1792538950890-a37f381e`: stopped on customer 1's sign-in with
+  HTTP 503 / Cloudflare Error 1102. Worker tail confirmed `outcome=exceededCpu`
+  and `cpuTime=10` ms for the sign-in request.
+- Each attempt provisioned 20 separate synthetic customers. They are retained
+  for inspection. Neither attempt created bookings or holds.
+
+This is a failed preparation phase, not a successful 20-customer concurrency
+result. The runner does not retry failed booking requests or conceal 503s.
+Subsequent availability probes could succeed, but the resource failure recurred
+on authentication, so no further load attempts were made.
+
+The 10 ms observed ceiling matches the
+[Workers Free CPU limit](https://developers.cloudflare.com/workers/platform/limits/).
+The deployed staging Worker has no explicit CPU limit override. Its usage model
+is `standard`; that label alone does not establish a paid subscription. The
+current API credentials cannot read account subscription information; the
+operator confirmed **Workers Free** during this investigation. Manage
+the **Workers** subscription in Cloudflare's account settings; the zone's
+Free/Pro/Business plan is a separate product. If Workers Paid is already active,
+investigate why this Worker is still hitting a 10 ms ceiling before rerunning.
+Do not weaken password hashing or production protections to avoid this failure.
+Once the runtime limit is resolved, rerun the explicit 20-customer command above.
+
+The test accounts and bookings remain in staging for inspection, labeled with the
 unique run ID and `[STAGING SMOKE]`. Re-running creates a new set and consumes
 additional staging capacity. No existing bookings are deleted or cancelled. A
 partial failure can leave active holds until their configured expiry. Review the
-report and staging records before repeating a failing run. Five login API calls
-precede the booking traffic; repeatedly starting runs can trigger Better Auth's
+report and staging records before repeating a failing run. Paced login API calls
+precede the booking traffic; other simultaneous login traffic can trigger Better Auth's
 own login rate limiting. No application rate limits are disabled by the runner.
 
 If the run reaches booking completion but fails notification checks, inspect the
-staging notification settings and any due-job backlog. The runner requires five
+staging notification settings and any due-job backlog. The runner requires the selected number of
 suppressed confirmation emails; it does not silently pass an empty queue.
 
 ## Cloudflare challenge prerequisite
