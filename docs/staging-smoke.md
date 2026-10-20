@@ -6,12 +6,13 @@ Run after the manual smoke test, staging deployment, and seed have passed:
 npm run smoke:staging -- --preflight
 npm run smoke:staging
 npm run smoke:staging -- --customers 20
+npm run smoke:staging -- --customers 100
 ```
 
 The runner uses Node's HTTP client and the installed Wrangler/Better Auth
 dependencies. It does not require k6 or any new packages. This is a small
-correctness test with five customers by default, or 20 when explicitly selected.
-Other load sizes are refused. This is not a throughput benchmark.
+correctness test with five customers by default, or 20 or 100 when explicitly
+selected. Other load sizes are refused. This is not a sustained throughput benchmark.
 
 ## What happens
 
@@ -20,10 +21,12 @@ Other load sizes are refused. This is not a throughput benchmark.
 2. GET the staging login form. Stop immediately if Cloudflare challenges the
    runner, the app is unavailable, or a redirect points outside staging. The
    `--preflight` option stops here and creates no fixtures.
-3. Read staging's database marker and select the latest future seeded drop-off
-   date belonging to `[STAGING] Load test`. Confirm spare daily/Smalls capacity
-   for the selected number of loads. Keep other booking activity off that date
-   during the test.
+3. Read staging's database marker and check future seeded drop-off dates belonging
+   to `[STAGING] Load test`, latest first. Select the first date with enough spare
+   daily **and** Smalls capacity for the selected load, counting existing bookings
+   and active holds. Stop before creating customers if none has sufficient space.
+   Keep other booking activity off the selected date during the test. Existing
+   bookings and capacity settings are not changed to make room.
 4. Create the selected number of **new** `[STAGING SMOKE]` consignors with unique `example.invalid`
    addresses and valid Better Auth credential issuers. A random shared password
    exists only in process memory; it is never printed, written in plaintext, or
@@ -32,7 +35,8 @@ Other load sizes are refused. This is not a throughput benchmark.
 5. Log in customers sequentially, with separate cookie jars and at least four
    seconds between login starts. The installed Better Auth version limits
    sensitive endpoints to three requests per ten seconds. Twenty logins take
-   at least 76 seconds; booking concurrency begins only after all have logged in.
+   at least 76 seconds; 100 take at least 396 seconds (6 minutes 36 seconds).
+   Booking concurrency begins only after all have logged in.
    Load the real booking forms to obtain separate booking-attempt cookies.
 6. Submit all reservation requests concurrently through the application's
    `/dropoffs/:id/book` action; verify the expected active holds and total points.
@@ -48,7 +52,8 @@ Other load sizes are refused. This is not a throughput benchmark.
 
 The selected load is the cheapest active load type, allocated 100% to Smalls.
 With the current seed configuration, five Car Loads consume 50 daily and 50
-Smalls capacity points; twenty consume 200 points each. This checks accounting under spare capacity; testing the
+Smalls capacity points; twenty consume 200 points each and 100 consume 1000.
+This checks accounting under spare capacity; testing the
 last-slot boundary and over-capacity rejection requires a separate scenario.
 
 The runner never follows HTTP redirects automatically. Its origin is hardcoded to

@@ -12,6 +12,7 @@ import { projectRoot, readConfig, validateStagingConfig } from "./staging-config
 
 export const STAGING_ORIGIN = "https://staging-consign.bidtrice.com";
 export const CUSTOMERS = 5;
+export const SUPPORTED_CUSTOMER_COUNTS = Object.freeze([5, 20, 100]);
 export const LOGIN_INTERVAL_MS = 4_000;
 const quote = value => `'${String(value).replaceAll("'", "''")}'`;
 class SmokeError extends Error {}
@@ -30,17 +31,17 @@ export function validateSmokeArguments(args) {
   let countSpecified = false;
   for (let index = 3; index < args.length; index++) {
     if (args[index] === "--preflight" && !preflight) preflight = true;
-    else if (args[index] === "--customers" && !countSpecified && ["5", "20"].includes(args[index + 1])) {
+    else if (args[index] === "--customers" && !countSpecified && SUPPORTED_CUSTOMER_COUNTS.map(String).includes(args[index + 1])) {
       customers = Number(args[++index]);
       countSpecified = true;
-    } else throw new SmokeError("Use --env staging --remote [--customers 5|20] [--preflight]; target overrides and other load sizes are forbidden.");
+    } else throw new SmokeError("Use --env staging --remote [--customers 5|20|100] [--preflight]; target overrides and other load sizes are forbidden.");
   }
   return { customers, preflight };
 }
 
 export function smokeUserIds(runId, customers = CUSTOMERS) {
   requireCheck(/^staging-smoke-\d+-[a-f0-9]{8}$/.test(runId), "Invalid synthetic run identifier.");
-  requireCheck([5, 20].includes(customers), "Only 5 or 20 smoke-test customers are supported.");
+  requireCheck(SUPPORTED_CUSTOMER_COUNTS.includes(customers), "Only 5, 20 or 100 smoke-test customers are supported.");
   return Array.from({ length: customers }, (_, index) => `${runId}-${index + 1}`);
 }
 
@@ -139,6 +140,17 @@ function capacitySnapshot(date, areaId) {
     COALESCE((SELECT SUM(reserved_smalls_points) FROM booking_holds h JOIN dropoff_days d ON d.id=h.dropoff_day_id WHERE d.dropoff_date=${quote(date)} AND h.status='active' AND h.expires_at>CURRENT_TIMESTAMP AND h.appointment_status='scheduled'),0) AS heldArea;`)[0];
 }
 
+export function selectSmokeDate(days, requiredPoints, snapshotForDate) {
+  requireCheck(Number.isFinite(requiredPoints) && requiredPoints > 0, "Invalid capacity requirement.");
+  for (const day of days) {
+    const before = snapshotForDate(day.date);
+    if (Number.isFinite(day.dailyCapacity) && Number.isFinite(day.areaCapacity)
+      && before.bookedDaily + before.heldDaily + requiredPoints <= day.dailyCapacity
+      && before.bookedArea + before.heldArea + requiredPoints <= day.areaCapacity) return { day, before };
+  }
+  throw new SmokeError(`No seeded staging date has enough spare daily and Smalls capacity for ${requiredPoints} points. No customer fixtures were created.`);
+}
+
 export function verifyRunBookings(rows, points, customers = CUSTOMERS) {
   requireCheck(rows.length === customers, `Expected exactly ${customers} bookings; found ${rows.length}.`);
   requireCheck(new Set(rows.map(row => row.userId)).size === customers, "A customer has duplicate bookings or another customer is missing.");
@@ -166,20 +178,20 @@ async function main() {
   console.log("Staging HTTP preflight passed.");
   if (preflight) return;
   requireCheck(d1("SELECT value FROM settings WHERE key='environment.marker';")[0]?.value === "staging", "Staging database marker is missing. Seed staging first.");
-  const day = d1(`SELECT d.id,d.dropoff_date AS date,d.daily_capacity_override AS dailyCapacity,o.capacity_points_override AS areaCapacity
+  const days = d1(`SELECT d.id,d.dropoff_date AS date,d.daily_capacity_override AS dailyCapacity,o.capacity_points_override AS areaCapacity
     FROM dropoff_days d JOIN booking_event_dropoff_dates link ON link.dropoff_day_id=d.id JOIN booking_events e ON e.id=link.booking_event_id
     JOIN item_areas area ON area.name='Smalls' AND area.active=1 JOIN dropoff_day_area_overrides o ON o.dropoff_day_id=d.id AND o.item_area_id=area.id
     WHERE d.notes='STAGING synthetic data' AND e.name='[STAGING] Load test' AND d.is_open=1 AND d.visibility='public' AND e.active=1
       AND d.dropoff_date>date('now') AND datetime(e.opens_at)<=CURRENT_TIMESTAMP AND (e.closes_at IS NULL OR datetime(e.closes_at)>CURRENT_TIMESTAMP)
-    ORDER BY d.dropoff_date DESC LIMIT 1;`)[0];
-  requireCheck(day, "No open, future seeded staging date is available.");
+    ORDER BY d.dropoff_date DESC;`);
+  requireCheck(days.length, "No open, future seeded staging date is available.");
   const loadType = d1("SELECT id,capacity_points AS points FROM dropoff_types WHERE active=1 AND capacity_points>0 ORDER BY capacity_points,id LIMIT 1;")[0];
   const areas = d1("SELECT id,name FROM item_areas WHERE active=1 ORDER BY display_order,name;");
   const smalls = areas.find(area => area.name === "Smalls");
   requireCheck(loadType && smalls, "Seeded load types or Smalls area are missing.");
-  const before = capacitySnapshot(day.date, smalls.id);
   const expected = customers * loadType.points;
-  requireCheck(before.bookedDaily + before.heldDaily + expected <= day.dailyCapacity && before.bookedArea + before.heldArea + expected <= day.areaCapacity, `The selected staging date lacks enough spare capacity for ${customers} bookings.`);
+  const { day, before } = selectSmokeDate(days, expected, date => capacitySnapshot(date, smalls.id));
+  console.log(`Selected seeded staging date ${day.date}: ${expected} points required; daily ${before.bookedDaily + before.heldDaily}/${day.dailyCapacity}, Smalls ${before.bookedArea + before.heldArea}/${day.areaCapacity} currently used.`);
   const runId = `staging-smoke-${Date.now()}-${randomBytes(4).toString("hex")}`;
   const marker = `[STAGING SMOKE] ${runId}`;
   const userIds = smokeUserIds(runId, customers).map(quote).join(",");

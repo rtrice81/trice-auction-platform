@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { assertAccessible, CUSTOMERS, LOGIN_INTERVAL_MS, parseWranglerOutput, smokeFixtureSql, smokeUserIds, stagingUrl, STAGING_ORIGIN, StagingClient, validateSmokeArguments, verifyRunBookings } from "../scripts/smoke-staging.mjs";
+import { assertAccessible, CUSTOMERS, LOGIN_INTERVAL_MS, parseWranglerOutput, selectSmokeDate, smokeFixtureSql, smokeUserIds, stagingUrl, STAGING_ORIGIN, StagingClient, validateSmokeArguments, verifyRunBookings } from "../scripts/smoke-staging.mjs";
 
 test("Wrangler JSON parser accepts import progress without exposing raw diagnostics", () => {
   const results = [{ results: [{ "Total queries executed": 20 }], success: true }];
@@ -18,7 +18,8 @@ test("smoke runner accepts only the fixed remote staging target", () => {
   validateSmokeArguments(["--env", "staging", "--remote", "--preflight"]);
   assert.deepEqual(validateSmokeArguments(["--env", "staging", "--remote", "--customers", "20"]), { customers: 20, preflight: false });
   assert.deepEqual(validateSmokeArguments(["--env", "staging", "--remote", "--preflight", "--customers", "20"]), { customers: 20, preflight: true });
-  for (const extra of [["--customers", "100"], ["--customers", "-1"], ["--customers", "20", "--customers", "5"], ["--preflight", "--preflight"]]) assert.throws(() => validateSmokeArguments(["--env", "staging", "--remote", ...extra]));
+  assert.deepEqual(validateSmokeArguments(["--env", "staging", "--remote", "--customers", "100"]), { customers: 100, preflight: false });
+  for (const extra of [["--customers", "1000"], ["--customers", "-1"], ["--customers", "20", "--customers", "5"], ["--preflight", "--preflight"]]) assert.throws(() => validateSmokeArguments(["--env", "staging", "--remote", ...extra]));
   for (const args of [[], ["--env", "production", "--remote"], ["--env", "staging", "--local"], ["--env", "staging", "--remote", "https://consign.bidtrice.com"]]) assert.throws(() => validateSmokeArguments(args));
   assert.equal(stagingUrl("/login").origin, STAGING_ORIGIN);
   for (const path of ["https://consign.bidtrice.com/login", "//consign.bidtrice.com/login", "http://staging-consign.bidtrice.com", "https://user:pass@staging-consign.bidtrice.com"]) assert.throws(() => stagingUrl(path));
@@ -102,8 +103,34 @@ test("twenty-customer fixtures and verification include multi-digit customer IDs
     const bookings = ids.map((id, index) => ({ userId: index + 1, holdId: id, holdStatus: "converted", status: "scheduled", percent: 100, points: 10 }));
     verifyRunBookings(bookings, 10, 20);
     assert.throws(() => verifyRunBookings(bookings.slice(0, 19), 10, 20), /exactly 20/);
-    assert.throws(() => smokeFixtureSql(run, "synthetic-hash", 100));
+    assert.throws(() => smokeFixtureSql(run, "synthetic-hash", 1000));
     // In any ten-second window, this cadence starts at most three logins.
     assert.ok(3 * LOGIN_INTERVAL_MS > 10_000);
+  } finally { db.close(); }
+});
+
+test("date selection skips insufficient capacity and counts active holds in both limits", () => {
+  const days = [{ date: "latest", dailyCapacity: 1200, areaCapacity: 1200 }, { date: "earlier", dailyCapacity: 1200, areaCapacity: 1200 }];
+  const occupied = { bookedDaily: 250, heldDaily: 0, bookedArea: 250, heldArea: 0 };
+  const empty = { bookedDaily: 0, heldDaily: 0, bookedArea: 0, heldArea: 0 };
+  assert.equal(selectSmokeDate(days, 1000, date => date === "latest" ? occupied : empty).day.date, "earlier");
+  assert.throws(() => selectSmokeDate(days, 1000, () => ({ ...empty, heldDaily: 201 })), /No seeded staging date/);
+  assert.throws(() => selectSmokeDate(days, 1000, () => ({ ...empty, heldArea: 201 })), /No seeded staging date/);
+  assert.equal(selectSmokeDate(days, 1000, () => ({ ...empty, heldDaily: 200, heldArea: 200 })).day.date, "latest");
+  assert.throws(() => selectSmokeDate(days, Infinity, () => empty), /Invalid capacity/);
+});
+
+test("hundred-customer fixture and booking verification include customer 100", async () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    for (const file of (await readdir(new URL("../migrations/", import.meta.url))).filter(file => file.endsWith(".sql")).sort()) db.exec(await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8"));
+    const run = "staging-smoke-1234567890123-abcdef12";
+    db.exec(smokeFixtureSql(run, "synthetic-hash", 100));
+    assert.equal(db.prepare("SELECT COUNT(*) AS total FROM account WHERE issuer='local:credential'").get().total, 100);
+    assert.equal(db.prepare("SELECT COUNT(*) AS total FROM user_roles WHERE role='consignor'").get().total, 100);
+    assert.ok(db.prepare('SELECT id FROM "user" WHERE id=?').get(`${run}-100`));
+    const rows = smokeUserIds(run, 100).map(id => ({ userId: id, holdId: id, holdStatus: "converted", status: "scheduled", percent: 100, points: 10 }));
+    verifyRunBookings(rows, 10, 100);
+    assert.throws(() => verifyRunBookings(rows.slice(0, 99), 10, 100), /exactly 100/);
   } finally { db.close(); }
 });
