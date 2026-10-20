@@ -139,7 +139,9 @@ Seed creates:
 - 100 active consignor customers and Better Auth credential accounts:
   `staging-loadtest-001@example.invalid` through `staging-loadtest-100@example.invalid`.
   All use the password supplied above. Names contain `[STAGING]` and no real phone
-  numbers are generated. These customers have no admin privileges.
+  numbers are generated. Credential accounts include Better Auth's required
+  `issuer=local:credential`; reseeding also repairs that field on existing test
+  accounts. These customers have no admin privileges.
 - An `environment.marker=staging` setting for verification.
 
 Re-running refreshes synthetic account passwords and adds future dates without

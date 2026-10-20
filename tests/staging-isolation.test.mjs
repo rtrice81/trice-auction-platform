@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
+import { betterAuth } from "better-auth";
+import { hashPassword } from "better-auth/crypto";
+import { randomBytes } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import test from "node:test";
 import { ModuleKind, ScriptTarget, transpileModule } from "typescript";
@@ -113,6 +117,7 @@ db.executescript(sql)
 db.executescript(sql)
 assert db.execute('SELECT count(*) FROM users').fetchone()[0] == 100
 assert db.execute('SELECT count(*) FROM account').fetchone()[0] == 100
+assert db.execute("SELECT count(*) FROM account WHERE issuer='local:credential'").fetchone()[0] == 100
 assert db.execute('SELECT count(*) FROM user_roles').fetchone()[0] == 100
 assert db.execute('SELECT count(*) FROM booking_events').fetchone()[0] == 1
 assert db.execute('SELECT count(*) FROM booking_event_dropoff_dates').fetchone()[0] == 5
@@ -121,4 +126,32 @@ assert not db.execute('PRAGMA foreign_key_check').fetchall()
 print('migrations and seed verified')
 `], { input: sql, encoding: "utf8", cwd: new URL("../", import.meta.url) });
   assert.match(result, /verified/);
+});
+
+test("seeded credentials sign in through Better Auth and reseeding repairs missing issuers", async () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    for (const file of (await readdir(new URL("../migrations/", import.meta.url))).filter(file => file.endsWith(".sql")).sort()) {
+      db.exec(await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8"));
+    }
+    const password = randomBytes(24).toString("base64url");
+    const sql = stagingSeedSql(await hashPassword(password));
+    db.exec(sql);
+    const auth = betterAuth({ database: db, secret: randomBytes(48).toString("base64url"), baseURL: policy.STAGING_ORIGIN,
+      emailAndPassword: { enabled: true }, logger: { disabled: true }, ...policy.stagingAuthOptions(staging) });
+    const signIn = () => auth.handler(new Request(`${policy.STAGING_ORIGIN}/api/auth/sign-in/email`, {
+      method: "POST", headers: { "content-type": "application/json", origin: policy.STAGING_ORIGIN },
+      body: JSON.stringify({ email: "staging-loadtest-001@example.invalid", password }),
+    }));
+    db.exec("UPDATE account SET issuer=NULL WHERE id='staging-loadtest-001'");
+    assert.equal((await signIn()).status, 401, "Missing issuer reproduces the login failure");
+    db.exec(sql);
+    const response = await signIn();
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).user.id, "staging-loadtest-001");
+    const cookies = response.headers.getSetCookie();
+    assert.ok(cookies.some(cookie => cookie.startsWith("__Secure-trice-staging.session_token=")));
+    const session = await auth.api.getSession({ headers: new Headers({ cookie: cookies.map(cookie => cookie.split(";")[0]).join("; ") }) });
+    assert.equal(session.user.id, "staging-loadtest-001");
+  } finally { db.close(); }
 });

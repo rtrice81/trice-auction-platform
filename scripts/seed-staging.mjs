@@ -61,8 +61,8 @@ export function stagingSeedSql(passwordHash) {
     const id = `staging-loadtest-${String(i).padStart(3, "0")}`;
     const email = `${id}@example.invalid`;
     statements.push(`INSERT OR IGNORE INTO "user"(id,name,email,emailVerified,createdAt,updatedAt) VALUES(${quote(id)},'[STAGING] Test Customer ${i}',${quote(email)},1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP);`);
-    statements.push(`INSERT INTO account(id,accountId,providerId,userId,password,createdAt,updatedAt) VALUES(${quote(id)},${quote(id)},'credential',${quote(id)},${quote(passwordHash)},CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-      ON CONFLICT(id) DO UPDATE SET password=excluded.password,updatedAt=CURRENT_TIMESTAMP;`);
+    statements.push(`INSERT INTO account(id,accountId,providerId,issuer,userId,password,createdAt,updatedAt) VALUES(${quote(id)},${quote(id)},'credential','local:credential',${quote(id)},${quote(passwordHash)},CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+      ON CONFLICT(id) DO UPDATE SET issuer=excluded.issuer,password=excluded.password,updatedAt=CURRENT_TIMESTAMP;`);
     statements.push(`INSERT OR IGNORE INTO users(email,first_name,last_name,role,auth_user_id,active) VALUES(${quote(email)},'[STAGING]','Customer ${i}','customer',${quote(id)},1);`);
     statements.push(`INSERT OR IGNORE INTO user_roles(user_id,role) SELECT id,'consignor' FROM users WHERE email=${quote(email)};`);
   }
