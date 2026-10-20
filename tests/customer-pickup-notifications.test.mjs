@@ -139,3 +139,33 @@ test("repeated customer queue calls use idempotent revision keys and ordinary ed
   assert.equal(jobs().filter(job => job.notification_type === "customer_pickup_created").length, 1);
   assert.equal(jobs().filter(job => job.notification_type === "customer_pickup_rescheduled").length, 0);
 });
+
+test("missing customer templates have ready-to-use defaults in the editor and delivery without writing on read", async t => {
+  const { db, sqlite, sent } = setup(t);
+  sqlite.exec("DELETE FROM notification_templates WHERE notification_type LIKE 'customer_pickup_%'");
+  const templates = (await notifications.getNotificationTemplates(db)).filter(template => template.notificationType.startsWith("customer_pickup_"));
+  assert.equal(templates.length, 4);
+  for (const template of templates) {
+    assert.ok(template.subject);
+    assert.match(template.body, /Hello {{customerName}}/);
+    assert.match(template.body, /{{customerAppointmentsUrl}}/);
+    assert.equal(validateCustomerPickupTemplate(`${template.subject}\n${template.body}`), null);
+    await notifications.sendTestNotification(db, environment, { channel: "email", destination: "customer@example.test", notificationType: template.notificationType });
+    assertCustomer(sent.at(-1));
+  }
+  assert.equal(sqlite.prepare("SELECT COUNT(*) AS count FROM notification_templates WHERE notification_type LIKE 'customer_pickup_%'").get().count, 0);
+});
+
+test("blank customer template fields use defaults while saved custom wording remains intact", async t => {
+  const { db, sqlite, sent } = setup(t);
+  sqlite.exec("UPDATE notification_templates SET subject='   ', body='   ' WHERE notification_type='customer_pickup_created'");
+  const template = (await notifications.getNotificationTemplates(db)).find(template => template.notificationType === "customer_pickup_created");
+  assert.equal(template.subject, "Your consignment pickup is scheduled");
+  assert.match(template.body, /We've scheduled your consignment pickup with Trice Auctions/);
+  await notifications.sendTestNotification(db, environment, { channel: "email", destination: "customer@example.test", notificationType: "customer_pickup_created" });
+  assertCustomer(sent.at(-1));
+  await notifications.saveNotificationTemplate(db, { notificationType: "customer_pickup_created", channel: "email", subject: "A note from Trice", body: "Custom greeting for {{customerName}}. View your appointment: {{customerAppointmentsUrl}}" });
+  const custom = (await notifications.getNotificationTemplates(db)).find(template => template.notificationType === "customer_pickup_created");
+  assert.equal(custom.subject, "A note from Trice");
+  assert.equal(custom.body, "Custom greeting for {{customerName}}. View your appointment: {{customerAppointmentsUrl}}");
+});

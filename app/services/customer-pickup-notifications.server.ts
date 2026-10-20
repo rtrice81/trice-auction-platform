@@ -1,6 +1,6 @@
 import type { PickupInput } from "./consignment-pickups.server";
 import { pickupNotificationEvents, type PickupSchedule, type PickupNotificationPayload } from "./internal-pickup-notifications.server";
-import { CUSTOMER_PICKUP_TEMPLATE_TYPES, validateCustomerPickupTemplate } from "../lib/customer-pickup-template.js";
+import { customerPickupTemplateWithDefaults, CUSTOMER_PICKUP_TEMPLATE_TYPES, validateCustomerPickupTemplate } from "../lib/customer-pickup-template.js";
 import { renderTemplateText } from "../lib/notification-template.js";
 import { getNotificationBaseUrl } from "../lib/notification-url.js";
 
@@ -55,7 +55,8 @@ export function customerPickupTemplateContext(payload: CustomerPickupPayload, en
 
 export async function renderCustomerPickupEmail(db: D1Database, type: string, context: Record<string, string>) {
   if (!CUSTOMER_PICKUP_TEMPLATE_TYPES.includes(type)) throw new Error("Unsupported customer pickup notification.");
-  const template = await db.prepare("SELECT subject,body FROM notification_templates WHERE notification_type=? AND channel='email'").bind(type).first<{ subject: string | null; body: string }>();
+  const saved = await db.prepare("SELECT subject,body FROM notification_templates WHERE notification_type=? AND channel='email'").bind(type).first<{ subject: string | null; body: string }>();
+  const template = customerPickupTemplateWithDefaults(type, saved);
   // An unsafe saved/legacy template must never turn into a customer email.
   if (!template || validateCustomerPickupTemplate(`${template.subject ?? ""}\n${template.body}`)) throw new Error("Customer pickup template is unavailable or unsafe.");
   const url = context.customerAppointmentsUrl;
