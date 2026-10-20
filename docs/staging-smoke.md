@@ -58,6 +58,26 @@ appointment IDs, capacity snapshots, notification summaries and request status/
 time-to-headers measurements. Passwords, hashes, cookies, tokens and response
 bodies are excluded. Failures after provisioning also produce a report.
 
+### Verified live run — October 20, 2026
+
+Run `staging-smoke-1792538507920-3ae656eb` passed against the October 31 seeded
+drop-off date after the hostname-and-IP bot exception was deployed:
+
+- Five concurrent reservations returned HTTP 200; five completions returned 302.
+- Appointments 2–6 were created, one per synthetic customer, with distinct
+  converted holds and no remaining active holds for the run.
+- Replaying a completed attempt returned HTTP 400 and created no duplicate.
+- Daily and Smalls booked capacity increased from 0 to 50 points each.
+- Five confirmation emails were recorded as `sent` with `suppressed:email`.
+  Ten future reminder jobs remain pending, as expected.
+- Time to response headers was 849–1097 ms for reservations and 1209–1283 ms for
+  completions. This single small run establishes correctness, not load capacity.
+
+The first attempt stopped after provisioning five accounts because Wrangler's
+file-import command printed progress before its JSON result, despite `--json`.
+It created no bookings. The parser now handles that output and has a regression
+test. The original 100 seeded account passwords were unchanged throughout.
+
 The five accounts and bookings remain in staging for inspection, labeled with the
 unique run ID and `[STAGING SMOKE]`. Re-running creates a new set and consumes
 additional staging capacity. No existing bookings are deleted or cancelled. A

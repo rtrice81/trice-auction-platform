@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
+import { stripVTControlCharacters } from "node:util";
 import { hashPassword } from "better-auth/crypto";
 import { projectRoot, readConfig, validateStagingConfig } from "./staging-config.mjs";
 
@@ -62,6 +63,17 @@ export class StagingClient {
   }
 }
 
+export function parseWranglerOutput(output) {
+  const clean = stripVTControlCharacters(output).trim();
+  // Wrangler 4 prints file-upload progress on stdout even with --json. The
+  // structured result follows that progress; ordinary --command output is JSON.
+  for (const match of clean.matchAll(/^[ \t]*(?=[\[{])/gm)) {
+    try { return JSON.parse(clean.slice(match.index)); }
+    catch { /* Continue to a complete JSON document, never log raw output. */ }
+  }
+  throw new SmokeError("Wrangler did not return valid JSON for the staging D1 operation.");
+}
+
 function d1(sql, privateSql = false) {
   const directory = mkdtempSync(join(tmpdir(), "trice-staging-smoke-"));
   try {
@@ -73,11 +85,9 @@ function d1(sql, privateSql = false) {
         "d1", "execute", "trice-auction-db-staging", "--env", "staging", "--remote", "--config", fileURLToPath(new URL("wrangler.jsonc", projectRoot)), ...(privateSql ? ["--file", file] : ["--command", sql]), "--json", "--yes"],
       { cwd: projectRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 8 * 1024 * 1024 });
     } catch { throw new SmokeError("Staging D1 query/import failed. Check Wrangler login, migrations, and D1 permissions. Raw SQL diagnostics are withheld to protect generated credential hashes."); }
-    let results;
-    try { results = JSON.parse(output); }
-    catch { throw new SmokeError("Wrangler did not return valid JSON for the staging D1 operation."); }
+    let results = parseWranglerOutput(output);
     if (!Array.isArray(results)) results = [results];
-    requireCheck(results.every(result => result.success), "A staging D1 statement failed.");
+    requireCheck(results.length > 0 && results.every(result => result.success), "A staging D1 statement failed.");
     return results.flatMap(result => result.results ?? []);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }

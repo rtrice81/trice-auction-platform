@@ -2,7 +2,16 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { assertAccessible, CUSTOMERS, smokeFixtureSql, stagingUrl, STAGING_ORIGIN, StagingClient, validateSmokeArguments, verifyRunBookings } from "../scripts/smoke-staging.mjs";
+import { assertAccessible, CUSTOMERS, parseWranglerOutput, smokeFixtureSql, stagingUrl, STAGING_ORIGIN, StagingClient, validateSmokeArguments, verifyRunBookings } from "../scripts/smoke-staging.mjs";
+
+test("Wrangler JSON parser accepts import progress without exposing raw diagnostics", () => {
+  const results = [{ results: [{ "Total queries executed": 20 }], success: true }];
+  const json = JSON.stringify(results, null, 2);
+  assert.deepEqual(parseWranglerOutput(json), results);
+  assert.deepEqual(parseWranglerOutput(`├ Checking if file needs uploading\n│\n├ 🌀 Uploading staging.sql\n│ 🌀 Uploading complete.\n│\n${json}\n`), results);
+  assert.deepEqual(parseWranglerOutput(`\u001b[32mUpload complete\u001b[0m\n${json}`), results);
+  assert.throws(() => parseWranglerOutput("sensitive raw diagnostic"), error => !error.message.includes("sensitive raw diagnostic"));
+});
 
 test("smoke runner accepts only the fixed remote staging target", () => {
   validateSmokeArguments(["--env", "staging", "--remote"]);
