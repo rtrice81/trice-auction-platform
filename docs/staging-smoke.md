@@ -113,6 +113,36 @@ investigate why this Worker is still hitting a 10 ms ceiling before rerunning.
 Do not weaken password hashing or production protections to avoid this failure.
 Once the runtime limit is resolved, rerun the explicit 20-customer command above.
 
+### Verified twenty-customer run after Workers Paid upgrade — October 20, 2026
+
+After the operator upgraded the Workers subscription, run
+`staging-smoke-1792539250263-9566e0ba` passed against the October 31 seeded
+drop-off date:
+
+- All 20 paced logins and booking-page loads succeeded. Twenty reservation POSTs
+  were then issued concurrently, followed by twenty concurrent completion POSTs.
+- Twenty scheduled appointments (IDs 7–26) were created with distinct converted
+  holds, correct allocations and no leftover active holds.
+- A completion replay returned HTTP 400 and created no extra appointment.
+- Daily and Smalls booked capacity each increased by exactly 200 points, from
+  50 to 250. These bookings remain in staging with their run marker.
+- All 20 confirmation emails were suppressed. Forty future email reminders
+  remain pending, as expected; no external email delivery occurred.
+- Across 87 observed Worker invocations during monitoring, all outcomes were
+  `ok`. Maximum observed CPU time was 200 ms; no CPU-limit failures recurred.
+
+Time to response headers for this small sample:
+
+| Phase | Median | p95 | Maximum |
+| --- | --- | --- | --- |
+| Reservation (20 concurrent) | 2266 ms | 2540 ms | 2685 ms |
+| Completion (20 concurrent) | 3242.5 ms | 3290 ms | 3313 ms |
+
+The private local report is
+`test-results/staging-smoke/staging-smoke-1792539250263-9566e0ba.json`.
+This validates correctness under spare capacity with 20 customers. It does not
+establish maximum throughput or verify a race for the final available slot.
+
 The test accounts and bookings remain in staging for inspection, labeled with the
 unique run ID and `[STAGING SMOKE]`. Re-running creates a new set and consumes
 additional staging capacity. No existing bookings are deleted or cancelled. A
