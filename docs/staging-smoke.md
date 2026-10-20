@@ -148,6 +148,67 @@ The private local report is
 This validates correctness under spare capacity with 20 customers. It does not
 establish maximum throughput or verify a race for the final available slot.
 
+### Hundred-customer preparation and CPU configuration — October 20, 2026
+
+The first 100-customer attempt, `staging-smoke-1792539518394-ebcc4192`, selected
+October 30 because October 31 already consumed 250 of its 1200 points and could
+not accommodate another 1000. It provisioned 100 synthetic customers, then
+stopped at customer 93's login with HTTP 503 / Error 1102. Worker tail reported
+`exceededCpu` at 116 ms. No reservation or completion requests had started, so
+the attempt created no bookings or holds.
+
+The account had already been upgraded to Workers Paid, but the active staging
+version advertised no explicit CPU limit. Staging was then configured and
+deployed with `limits.cpu_ms=1000`. The API confirmed this exact limit on version
+`45fc4da9-4ade-4f7d-b390-d29d6fb732a2`, along with the dedicated staging D1 and
+R2 bindings. Production CPU configuration, authentication security and rate limits
+were left unchanged. Both source and generated-build validation now enforce the
+explicit staging allowance. This is one second of CPU, separate from elapsed
+time waiting on D1/network I/O; it requires Workers Paid.
+
+### Hundred-customer booking result — failed end-to-end check
+
+With the explicit CPU allowance, run `staging-smoke-1792540070649-6894df03`
+authenticated all 100 customers and reached both concurrent booking phases:
+
+- All 100 reservation requests returned HTTP 200.
+- Completion returned HTTP 302 for 99 customers and HTTP 500 for customer 99.
+  The failure occurred after 2073 ms and was not an edge CPU/resource-limit page.
+- A read-only audit found **100 scheduled bookings**, IDs 27–126, for 100 distinct
+  customers, with 100 distinct converted holds. Every appointment had allocations
+  totaling 100% and 10 capacity points. No active holds remained for this run.
+- October 30's daily and Smalls usage each increased from 0 to 1000 points,
+  within the date's 1200-point capacities. There was no observed overbooking.
+- Customer 99's booking **61** committed despite the HTTP 500. That booking has
+  no confirmation or reminder jobs. The other 99 bookings each have a suppressed
+  confirmation and two pending future email reminders. No external email was sent.
+- The duplicate-completion replay was **not run**, because the scenario stopped
+  after the completion error. No booking request was blindly retried.
+- All 423 observed Worker invocation outcomes were `ok`, with maximum CPU time
+  262 ms. A handled application HTTP 500 can still have Worker outcome `ok`;
+  this is not evidence that every request succeeded.
+
+| Phase | Successful responses | Median time to headers | p95 | Maximum |
+| --- | --- | --- | --- | --- |
+| Reservation | 100/100 | 8936.5 ms | 10327 ms | 10743 ms |
+| Completion | 99/100 | 15323 ms | 16140 ms | 17145 ms |
+
+The report remains `passed=false`:
+`test-results/staging-smoke/staging-smoke-1792540070649-6894df03.json`.
+It includes the original HTTP results and a separately labeled `postFailureAudit`
+with the database findings. The audit does not turn the failed HTTP scenario into
+a pass.
+
+Investigate the saved Worker logs for Ray **a4dbf2fbccb7c207-IAD**, staging
+version `45fc4da9-4ade-4f7d-b390-d29d6fb732a2`, request
+`POST /dropoffs/4/book`. The current Wrangler OAuth token can live-tail but cannot
+query persisted Workers Observability logs; that API returned HTTP 403. The exact
+server exception has not been retrieved, so a specific database or code cause
+has not been established. The confirmed defect is a committed booking presented
+as a failure, with its notification jobs missing. Address that post-commit failure
+and notification reliability before increasing concurrency or calling 100 users
+supported. All records remain in staging for inspection; production was untouched.
+
 The test accounts and bookings remain in staging for inspection, labeled with the
 unique run ID and `[STAGING SMOKE]`. Re-running creates a new set and consumes
 additional staging capacity. No existing bookings are deleted or cancelled. A
