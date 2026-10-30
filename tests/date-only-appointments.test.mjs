@@ -5,7 +5,6 @@ import test from "node:test";
 const files = await Promise.all([
   "app/services/booking.server.ts",
   "app/components/customer-booking-form.tsx",
-  "app/routes/my-appointments.detail.tsx",
   "app/routes/admin.appointments.new.tsx",
   "app/routes/manager.detail.tsx",
   "app/routes/employee.tsx",

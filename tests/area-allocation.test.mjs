@@ -19,9 +19,10 @@ test("all item-area allocations are deliberate and must total exactly 100%", () 
 });
 
 test("all appointment allocation editors use editable shared allocation fields", () => {
-  for (const source of [customerForm, appointmentEdit, adminAppointmentFields, managerForm]) {
+  for (const source of [customerForm, adminAppointmentFields, managerForm]) {
     assert.match(source, /AreaAllocationFields/);
   }
+  assert.doesNotMatch(appointmentEdit, /AreaAllocationFields/);
   assert.match(adminForm, /AdminAppointmentFields/);
   assert.doesNotMatch(allocationFields, /readOnly=/);
   assert.match(customerForm, /Reserve My Space/);

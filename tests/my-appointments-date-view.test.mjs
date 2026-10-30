@@ -16,13 +16,13 @@ test("My Appointments defaults to Upcoming and derives Past from the Drop-Off Da
 test("My Appointments sorts Upcoming first and Past most-recent-first without changing appointment status", () => {
   assert.match(customerAppointments, /return view === "past" \? -comparison : comparison/);
   assert.match(customerAppointments, /appointment\.dateStatus === view/);
-  assert.match(appointments, /appointment\.status === "scheduled"/);
+  assert.match(appointments, /appointment\.status/);
 });
 
 test("Past appointments retain their detail link and customer-visible historical information", () => {
   assert.match(appointments, /to=\{`\/my-appointments\/\$\{appointment\.id\}`\}/);
   assert.match(detail, /appointment\.appointmentDate/);
   assert.match(detail, /appointment\.description/);
-  assert.match(detail, /AreaAllocationFields/);
+  assert.match(detail, /appointment\.allocations/);
   assert.match(detail, /appointment\.status/);
 });

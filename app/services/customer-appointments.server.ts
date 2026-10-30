@@ -42,3 +42,25 @@ export async function getCustomerPickup(db: D1Database, userId: number, pickupId
     .bind(pickupId, userId).first<PickupRow>();
   return pickup ? { ...pickup, status: customerPickupStatusLabel(pickup.status) } : null;
 }
+
+export async function getCustomerDropoff(db: D1Database, userId: number, appointmentId: number) {
+  if (!Number.isSafeInteger(appointmentId) || appointmentId < 1) return null;
+  const appointment = await db.prepare(`SELECT a.id, a.appointment_date AS appointmentDate, a.appointment_time AS appointmentTime,
+    a.description, a.status, t.name AS loadType, day.event_name AS eventName, day.visibility
+    FROM appointments a JOIN dropoff_types t ON t.id=a.dropoff_type_id
+    LEFT JOIN dropoff_days day ON day.dropoff_date=a.appointment_date WHERE a.id=? AND a.user_id=?`)
+    .bind(appointmentId, userId).first<{ id: number; appointmentDate: string; appointmentTime: string | null; description: string | null; status: string; loadType: string; eventName: string | null; visibility: string | null }>();
+  if (!appointment) return null;
+  const { results: allocations } = await db.prepare(`SELECT area.name, allocation.allocation_percent AS percentage
+    FROM appointment_area_allocations allocation JOIN item_areas area ON area.id=allocation.item_area_id
+    WHERE allocation.appointment_id=? ORDER BY area.display_order, area.id`).bind(appointmentId).all<{ name: string; percentage: number }>();
+  return { ...appointment, allocations };
+}
+
+export async function updateCustomerDropoffDescription(db: D1Database, userId: number, appointmentId: number, description: string) {
+  if (description.length > 2000) return { ok: false as const, error: "What are you bringing? must be 2,000 characters or fewer.", notFound: false };
+  const updated = await db.prepare(`UPDATE appointments SET description=?, updated_at=CURRENT_TIMESTAMP
+    WHERE id=? AND user_id=? RETURNING id`).bind(description || null, appointmentId, userId).first<{ id: number }>();
+  if (!updated) return { ok: false as const, error: "Appointment not found.", notFound: true };
+  return { ok: true as const };
+}
