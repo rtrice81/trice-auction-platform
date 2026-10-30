@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { data, Link, redirect } from "react-router";
 import { useState } from "react";
 import type { Route } from "./+types/dropoffs.book";
-import { getBookingOptions } from "../services/booking.server";
+import { getBookingOptions, getCustomerAreaAvailability } from "../services/booking.server";
 import { getCurrentUser } from "../services/auth.server";
 import { getBookingAttemptId, createBookingAttemptId, bookingAttemptCookie, getPendingBooking, getPendingBookingToken, pendingBookingFromForm } from "../services/pending-booking.server";
 import { bookingSuccessFlashCookie, createBookingSuccessFlash } from "../services/booking-success-flash.server";
@@ -29,16 +29,20 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   if (user) await associateBookingHoldUser(env.trice_auction_db, attemptId, user.id);
   const [pendingBooking, hold] = await Promise.all([user ? getPendingBooking(env.trice_auction_db, getPendingBookingToken(request)) : null, getBookingHold(env.trice_auction_db, attemptId)]);
   const protection = user || !selected.date.bookable ? null : await createPublicFormStart(request, "public-booking", runtime);
-  const options = selected.date.bookable ? await getBookingOptions(env.trice_auction_db) : null;
+  const activeHold = hold?.status === "active" && hold.appointmentDate === selected.date.eventDate && Date.parse(`${hold.expiresAt.replace(" ", "T")}Z`) > Date.now() ? hold : null;
+  const showCapacity = selected.date.bookable || selected.date.availability === "Full" || Boolean(activeHold);
+  const [options, areaAvailability] = await Promise.all([showCapacity ? getBookingOptions(env.trice_auction_db) : null, showCapacity ? getCustomerAreaAvailability(env.trice_auction_db, selected.date.eventDate, activeHold?.id) : []]);
   const headers = new Headers(protection?.headers); headers.append("Set-Cookie", bookingAttemptCookie(attemptId, request));
-  return data({ selected, pendingBooking: pendingBooking?.appointmentDate === selected.date.eventDate ? pendingBooking : null, hold: hold?.appointmentDate === selected.date.eventDate ? hold : null, resumed: new URL(request.url).searchParams.get("resume") === "1" && Boolean(pendingBooking || hold), isAuthenticated: Boolean(user), turnstileSiteKey: runtime.TURNSTILE_SITE_KEY ?? "", formStartToken: protection?.token ?? "", dropoffTypes: options?.dropoffTypes.map(({ id, name }) => ({ id, name })) ?? [], itemAreas: options?.itemAreas.map(({ id, name }) => ({ id, name })) ?? [] }, { headers });
+  return data({ selected, pendingBooking: pendingBooking?.appointmentDate === selected.date.eventDate ? pendingBooking : null, hold: activeHold, resumed: new URL(request.url).searchParams.get("resume") === "1" && Boolean(pendingBooking || hold), isAuthenticated: Boolean(user), turnstileSiteKey: runtime.TURNSTILE_SITE_KEY ?? "", formStartToken: protection?.token ?? "", dropoffTypes: options?.dropoffTypes.map(({ id, name }) => ({ id, name })) ?? [], itemAreas: options?.itemAreas.map(({ id, name }) => ({ id, name })) ?? [], areaAvailability }, { headers });
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
   const eventId = Number(params.eventId);
   const selected = Number.isInteger(eventId) ? await getCustomerDropoffDateById(env.trice_auction_db, eventId) : null;
-  if (!selected || !selected.date.bookable) return data({ ok: false as const, requiresAuthentication: false, errors: ["This drop-off date is not currently available for signup."] }, { status: 400 });
   const formData = await request.formData();
+  const currentHold = formData.get("intent") === "complete" ? await getBookingHold(env.trice_auction_db, getBookingAttemptId(request)) : null;
+  const protectedHold = selected && selected.date.availability === "Full" && currentHold?.status === "active" && currentHold.appointmentDate === selected.date.eventDate && Date.parse(`${currentHold.expiresAt.replace(" ", "T")}Z`) > Date.now();
+  if (!selected || (!selected.date.bookable && !protectedHold)) return data({ ok: false as const, requiresAuthentication: false, errors: ["This drop-off date is not currently available for signup."] }, { status: 400 });
   const pendingBooking = { ...pendingBookingFromForm(formData), appointmentDate: selected.date.eventDate };
   let attemptId = getBookingAttemptId(request) ?? createBookingAttemptId();
   const user = await getCurrentUser(request, env.trice_auction_db, runtime);
@@ -54,7 +58,8 @@ export async function action({ request, params }: Route.ActionArgs) {
     if ((await getBookingHold(env.trice_auction_db, attemptId))?.status === "converted") attemptId = createBookingAttemptId();
     const result = await reserveBookingHold(env.trice_auction_db, { userId: user?.id ?? 0, ...pendingBooking }, attemptId, user?.id ?? null);
     const headers = new Headers(); headers.append("Set-Cookie", bookingAttemptCookie(attemptId, request));
-    return data({ ...result, requiresAuthentication: result.ok && !user, submitted: pendingBooking }, { status: result.ok ? 200 : 409, headers });
+    const areaAvailability = !result.ok ? await getCustomerAreaAvailability(env.trice_auction_db, selected.date.eventDate) : undefined;
+    return data({ ...result, requiresAuthentication: result.ok && !user, submitted: pendingBooking, areaAvailability }, { status: result.ok ? 200 : 409, headers });
   }
   if (!user) return data({ ok: false as const, requiresAuthentication: true, errors: ["Log in or create an account to complete your reserved booking."], submitted: pendingBooking }, { status: 401 });
   const result = await convertBookingHold(env.trice_auction_db, { userId: user.id, ...pendingBooking }, attemptId, user.id);
@@ -70,6 +75,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 export default function BookDropoff({ loaderData, actionData }: Route.ComponentProps) {
   const booking = actionData && "submitted" in actionData ? actionData.submitted : loaderData.pendingBooking;
   const hold = actionData && "hold" in actionData && actionData.hold ? actionData.hold : loaderData.hold;
+  const areaAvailability = actionData && "areaAvailability" in actionData && actionData.areaAvailability ? actionData.areaAvailability : loaderData.areaAvailability;
   const needsAuthentication = Boolean(actionData && "requiresAuthentication" in actionData && actionData.requiresAuthentication);
   const [dismissedAccountPrompt, setDismissedAccountPrompt] = useState(false);
   const { date: event, bookingEvent } = loaderData.selected;
@@ -77,7 +83,9 @@ export default function BookDropoff({ loaderData, actionData }: Route.ComponentP
     <PageCard title="Selected Drop-Off Event"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xl font-bold text-[#25272b]">{formatDropoffDate(event.eventDate)}</p>{event.eventName ? <p className="mt-1 text-[#5f6368]">{event.eventName}</p> : null}{event.description?.trim() ? <p className="mt-3 max-w-2xl whitespace-pre-wrap text-[#41454b]">{event.description}</p> : null}</div><AvailabilityBadge label={event.availability}/></div></PageCard>
     {loaderData.resumed ? <Notice variant="warning"><p className="font-semibold">Your pending booking has been restored.</p><p className="mt-1">Your active reservation remains protected until it expires.</p></Notice> : null}
     {actionData && !actionData.ok && !needsAuthentication ? <Notice variant="error"><p className="font-semibold">We could not schedule this drop-off.</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm">{actionData.errors.map((error) => <li key={error}>{error}</li>)}</ul></Notice> : null}
-    {!event.bookable ? <Notice variant="warning">This drop-off event is not currently available for signup. Please choose another scheduled event.</Notice> : <CustomerBookingForm appointmentDate={event.eventDate} booking={booking} hold={hold} dropoffTypes={loaderData.dropoffTypes} itemAreas={loaderData.itemAreas} isAuthenticated={loaderData.isAuthenticated} turnstileSiteKey={loaderData.turnstileSiteKey} formStartToken={loaderData.formStartToken} waitlistOnly={event.availability === "Waitlist"}/>} 
+    {event.availability === "Full" && !hold ? <Notice variant="warning">Storage or drop-off capacity for this date is full. Please choose another scheduled date.</Notice> : null}
+    {event.availability === "Waitlist" ? <Notice variant="warning">Confirmed space is full. Online waitlist requests are currently unavailable; please contact us for assistance.</Notice> : null}
+    {!event.bookable && !hold ? (event.availability === "Full" && areaAvailability.length ? <div className="mt-6"><PageCard title="Storage availability"><ul>{areaAvailability.map(area => <li key={area.id}>{area.name} — {area.full ? "Full" : "Available"}</li>)}</ul></PageCard></div> : <Notice variant="warning">This drop-off event is not currently available for signup. Please choose another scheduled event.</Notice>) : <CustomerBookingForm appointmentDate={event.eventDate} booking={booking} hold={hold} dropoffTypes={loaderData.dropoffTypes} itemAreas={loaderData.itemAreas} areaAvailability={areaAvailability} isAuthenticated={loaderData.isAuthenticated} turnstileSiteKey={loaderData.turnstileSiteKey} formStartToken={loaderData.formStartToken} waitlistOnly={event.availability === "Waitlist"}/>}
     <PendingBookingDialog open={needsAuthentication && !dismissedAccountPrompt} onClose={() => setDismissedAccountPrompt(true)}/>
   </div></PageShell>;
 }

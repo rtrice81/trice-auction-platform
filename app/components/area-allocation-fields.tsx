@@ -10,6 +10,7 @@ type AreaAllocationFieldsProps = {
   inputClassName?: string;
   labelClassName?: string;
   onTotalChange?: (total: number) => void;
+  fullAreaIds?: number[];
 };
 
 export function AreaAllocationFields({
@@ -19,19 +20,23 @@ export function AreaAllocationFields({
   inputClassName = "block w-20 rounded-lg border border-stone-300 bg-white px-3 py-2 font-semibold outline-none focus:border-[#9d302f] focus:ring-2 focus:ring-[#f2d8d7]",
   labelClassName = "rounded-2xl border border-stone-200 bg-white p-5 shadow-sm",
   onTotalChange,
+  fullAreaIds,
 }: AreaAllocationFieldsProps) {
   const initialValue = (area?: ItemArea) => area ? allocations.find((allocation) => allocation.itemAreaId === area.id)?.percentage ?? 0 : 0;
   const [values, setValues] = useState(() => new Map(itemAreas.map((area) => [area.id, String(initialValue(area))])));
-  const total = itemAreas.reduce((sum, area) => sum + (Number(values.get(area.id)) || 0), 0);
+  const total = itemAreas.reduce((sum, area) => sum + (fullAreaIds?.includes(area.id) ? 0 : (Number(values.get(area.id)) || 0)), 0);
   useEffect(() => onTotalChange?.(total), [onTotalChange, total]);
 
   return <><div className={className}>{itemAreas.map((area) => {
-    const value = values.get(area.id) ?? "0";
+    const full = fullAreaIds?.includes(area.id);
+    const value = full ? "0" : values.get(area.id) ?? "0";
     return <label key={area.id} className={labelClassName}>
-      <span className="block font-semibold text-stone-950">{area.name}</span>
+      <span className="block font-semibold text-stone-950">{area.name}{fullAreaIds !== undefined ? <span className={full ? "ml-2 text-red-800" : "ml-2 text-emerald-800"}>— {full ? "Full" : "Available"}</span> : null}</span>
       <span className="mt-1 block text-sm text-stone-600">Percentage of this load</span>
+      {full ? <input type="hidden" name={`allocation-${area.id}`} value="0" /> : null}
       <span className="mt-4 flex items-center gap-2"><input
         required
+        disabled={full}
         type="number"
         name={`allocation-${area.id}`}
         min="0"

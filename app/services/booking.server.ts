@@ -345,6 +345,17 @@ export async function validateBooking(
   return { ok: true, dropoffType, capacityContext, allocations, appointmentStatus: capacity.status, waitlistReason: capacity.waitlistReason };
 }
 
+// Reuse the booking evaluation so customer availability follows the same date overrides,
+// appointment statuses, and active holds as a reservation. Do not expose capacity points.
+export async function getCustomerAreaAvailability(db: D1Database, date: string, excludedHoldId?: string) {
+  const [options, settings] = await Promise.all([getBookingOptions(db), getSettings(db)]);
+  const effective = await getEffectiveDateCapacity(db, date, settings.defaultDailyIntakeCapacity, options.itemAreas);
+  if (!effective || !options.dropoffTypes.length) return [];
+  const allocations = options.itemAreas.map(area => ({ itemAreaId: area.id, percentage: 0 }));
+  const evaluation = await getCapacityEvaluation(db, date, options.dropoffTypes[0], options.itemAreas, allocations, effective, undefined, false, excludedHoldId);
+  return evaluation.context.areas.map(area => ({ id: area.id, name: area.name, full: area.usedPoints >= area.allowedPoints }));
+}
+
 export async function getMonthlyAppointmentUsage(db: D1Database, input: Pick<BookingInput, "userId" | "appointmentDate" | "appointmentId">) {
   const bounds = getMonthBounds(input.appointmentDate);
   const { results } = await db.prepare(

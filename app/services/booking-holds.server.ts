@@ -19,6 +19,8 @@ export async function reserveBookingHold(db: D1Database, input: BookingInput, bo
   // booking path. The write below is an additional atomic guard, not a second
   // set of business rules.
   const validation = await validateBooking(db, { ...input, userId: userId ?? 0 }, { excludedHoldId: existing?.id });
+  const fullAreas = validation.capacityContext?.areas.filter(area => area.requestedPoints > 0 && area.usedPoints >= area.allowedPoints).map(area => area.name) ?? [];
+  if (fullAreas.length) return { ok: false as const, errors: [`${fullAreas.join(", ")} capacity filled while you were completing your appointment. Please update your item allocation using the remaining available categories.`] };
   if (!validation.ok || validation.appointmentStatus !== "scheduled") {
     return { ok: false as const, errors: validation.ok ? ["This availability was just reserved by another customer. Please adjust your load or select another Drop-Off Date."] : validation.errors };
   }
