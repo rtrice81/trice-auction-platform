@@ -110,7 +110,7 @@ test("customer list combines own pickups and drop-offs with distinct cards and s
   assert.match(pickupCard, /View Appointment/);
   assert.doesNotMatch(pickupCard, /<form|<button|edit|reschedule|cancel/i);
   assert.match(html, /View Appointment/);
-  assert.doesNotMatch(html, />Cancel<\/button>/);
+  assert.match(html, />Cancel<\/button>/);
 });
 
 test("pickup-only authenticated customers can list and open their pickup", async t => {
@@ -165,12 +165,12 @@ test("customer drop-off details allow only the description and enforce ownership
   const detail = await dropoff.loader({ request: request(), params: { id: String(id) } });
   const html = render(dropoff.default, detail);
   for (const label of ["Drop-off date", "Load type", "Status", "Item allocations", "What you are bringing", "Update What You Are Bringing"]) assert.ok(html.includes(label), label);
-  assert.doesNotMatch(html, /<select|name="(?:appointmentDate|dropoffTypeId|status|allocation-)|Cancel appointment/);
+  assert.doesNotMatch(html, /<select|name="(?:appointmentDate|dropoffTypeId|status|allocation-)/);
   const before = { ...sqlite.prepare("SELECT * FROM appointments WHERE id=?").get(id) };
   const allocationBefore = sqlite.prepare("SELECT * FROM appointment_area_allocations WHERE appointment_id=?").all(id);
   for (const values of [
     { description: "Attack", appointmentDate: "2030-01-01", appointmentTime: "10:00", dropoffTypeId: "2", status: "cancelled", userId: "3", adminNotes: "attack", bookingEventId: "2", "allocation-1": "0", capacity: "100" },
-    { intent: "cancel" }, { pickupId: String(id), description: "Attack" },
+    { intent: "cancel", status: "scheduled" }, { pickupId: String(id), description: "Attack" },
     { description: "x".repeat(2001) },
   ]) {
     const result = await dropoff.action({ request: request(`/my-appointments/${id}`, 2, values), params: { id: String(id) } });
@@ -188,9 +188,11 @@ test("customer drop-off details allow only the description and enforce ownership
   delete before.description; delete before.updated_at; delete after.description; delete after.updated_at;
   assert.deepEqual(after, before);
   assert.deepEqual(sqlite.prepare("SELECT * FROM appointment_area_allocations WHERE appointment_id=?").all(id), allocationBefore);
-  const cancel = await handler.query(request("/my-appointments", 2, { appointmentId: String(id), intent: "cancel" }));
-  assert.equal(cancel.statusCode, 405);
-  assert.equal(sqlite.prepare("SELECT status FROM appointments WHERE id=?").get(id).status, "scheduled");
+  await assert.rejects(dropoff.action({ request: request(`/my-appointments/${otherId}`, 2, { intent: "cancel" }), params: { id: String(otherId) } }), response => response.status === 404);
+  assert.equal(sqlite.prepare("SELECT status FROM appointments WHERE id=?").get(otherId).status, "scheduled");
+  const cancel = await dropoff.action({ request: request(`/my-appointments/${id}`, 2, { intent: "cancel" }), params: { id: String(id) } });
+  assert.match(cancel.data.message, /cancelled/);
+  assert.equal(sqlite.prepare("SELECT status FROM appointments WHERE id=?").get(id).status, "cancelled");
 });
 
 test("admin drop-off editing still updates date, load type, description and allocations", async t => {

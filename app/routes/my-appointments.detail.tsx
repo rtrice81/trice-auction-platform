@@ -3,8 +3,9 @@ import { data, Form, Link } from "react-router";
 import type { Route } from "./+types/my-appointments.detail";
 import { requireRole } from "../services/auth.server";
 import { getCustomerDropoff, updateCustomerDropoffDescription } from "../services/customer-appointments.server";
-import { queueAppointmentRescheduled } from "../services/notification.server";
+import { cancelWaitlistableAppointment, queueAppointmentRescheduled } from "../services/notification.server";
 import { getInternalAppointmentSnapshot, internalAppointmentDetailsChanged } from "../services/internal-appointment-notifications.server";
+import { ConfirmationForm } from "../components/confirmation-form";
 import { Button, FormField, Notice, PageCard, PageIntro, PageShell } from "../components/design-system";
 
 const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
@@ -22,7 +23,11 @@ export async function action({ request, params }: Route.ActionArgs) {
   const appointment = await getCustomerDropoff(env.trice_auction_db, user.id, appointmentId);
   if (!appointment) throw new Response("Not Found", { status: 404 });
   const form = await request.formData();
-  // Reject unexpected fields, including old cancellation and edit forms.
+  if (form.get("intent") === "cancel" && Array.from(form.keys()).every(key => key === "intent") && form.getAll("intent").length === 1) {
+    const result = await cancelWaitlistableAppointment(env.trice_auction_db, appointmentId, env as never, user.email, user.id);
+    return result.cancelled ? data({ message: "Your appointment has been cancelled." }) : data({ error: "This appointment can no longer be cancelled." }, { status: 400 });
+  }
+  // Reject unexpected fields, including fields from old edit forms.
   if (Array.from(form.keys()).some(key => key !== "description") || form.getAll("description").length !== 1 || typeof form.get("description") !== "string") {
     return data({ error: "Only What you are bringing can be updated." }, { status: 400 });
   }
@@ -54,5 +59,6 @@ export default function Detail({ loaderData, actionData }: Route.ComponentProps)
         <div><Button>Update What You Are Bringing</Button></div>
       </Form>
     </PageCard>
+    {appointment.status === "scheduled" || appointment.status === "waitlisted" ? <ConfirmationForm method="post" className="mt-5" confirmation={{ title: "Cancel drop-off appointment?", description: "Are you sure you want to cancel this drop-off appointment?", confirmLabel: "Cancel appointment", destructive: true }}><input type="hidden" name="intent" value="cancel"/><Button variant="destructive">Cancel appointment</Button></ConfirmationForm> : null}
   </div></PageShell>;
 }

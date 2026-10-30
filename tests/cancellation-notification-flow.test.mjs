@@ -14,6 +14,6 @@ test("cancellation transition is conditional and queues one cancellation notific
 });
 
 test("admin and manager cancellation paths use the shared transition", () => {
-  assert.doesNotMatch(customerRoute, /cancelScheduledAppointment/);
+  assert.match(customerRoute, /cancelWaitlistableAppointment/);
   for (const source of [adminRoute, managerRoute]) assert.match(source, /cancelScheduledAppointment/);
 });
