@@ -1,3 +1,4 @@
+import { customerStorageAvailability } from "../lib/customer-storage-capacity";
 import { getEffectiveDateCapacity, type EffectiveDateCapacity } from "./date-capacity.server";
 import { getBookableBookingEventForDate } from "./booking-event.server";
 import { bookingEventInstant } from "../lib/booking-event-time";
@@ -353,7 +354,7 @@ export async function getCustomerAreaAvailability(db: D1Database, date: string, 
   if (!effective || !options.dropoffTypes.length) return [];
   const allocations = options.itemAreas.map(area => ({ itemAreaId: area.id, percentage: 0 }));
   const evaluation = await getCapacityEvaluation(db, date, options.dropoffTypes[0], options.itemAreas, allocations, effective, undefined, false, excludedHoldId);
-  return evaluation.context.areas.map(area => ({ id: area.id, name: area.name, full: area.usedPoints >= area.allowedPoints }));
+  return evaluation.context.areas.map(area => customerStorageAvailability(area.id, area.name, area.usedPoints, area.allowedPoints));
 }
 
 export async function getMonthlyAppointmentUsage(db: D1Database, input: Pick<BookingInput, "userId" | "appointmentDate" | "appointmentId">) {
