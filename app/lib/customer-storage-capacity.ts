@@ -1,3 +1,7 @@
+export function isCustomerStorageCategory(name: string) {
+  return ["Smalls", "Large/Furniture", "Outdoor"].includes(name);
+}
+
 /** Convert confirmed storage capacity into a customer-safe availability indicator. */
 export function customerStorageAvailability(id: number, name: string, used: number, capacity: number) {
   const full = capacity <= 0 || used >= capacity;

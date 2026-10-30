@@ -1,3 +1,4 @@
+import { isCustomerStorageCategory } from "../lib/customer-storage-capacity";
 import { getBookableBookingEventForDate } from "./booking-event.server";
 import { createValidatedBooking, validateBooking, type BookingInput, type MonthlyAppointment } from "./booking.server";
 import { getCustomerById } from "./customer-management.server";
@@ -67,6 +68,9 @@ export async function createAdminAppointment(
     }
     const storageExceeded = context.areas.some(area => area.usedPoints + area.requestedPoints > area.allowedPoints);
     for (const area of context.areas) {
+      if (isCustomerStorageCategory(area.name) && area.usedPoints >= area.allowedPoints && area.usedPoints + area.requestedPoints <= area.allowedPoints) {
+        capacityViolations.push(`Confirmed capacity already full for ${area.name}.`);
+      }
       if (area.usedPoints + area.requestedPoints > area.allowedPoints) {
         capacityViolations.push(`Confirmed capacity exceeded for ${area.name}.`);
       }

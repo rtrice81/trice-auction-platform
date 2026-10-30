@@ -1,4 +1,4 @@
-import { customerStorageAvailability } from "../lib/customer-storage-capacity";
+import { customerStorageAvailability, isCustomerStorageCategory } from "../lib/customer-storage-capacity";
 export type BookingEventStatus = "upcoming" | "open" | "closed" | "full" | "inactive";
 export type CustomerAvailability = "Available" | "Limited Availability" | "Nearly Full" | "Waitlist" | "Full" | "Signup Not Open Yet" | "Closed";
 
@@ -57,6 +57,7 @@ async function getDateAvailability(db: D1Database, row: BookingEventRow, now: Da
   const areas = capacity.areas;
   if (status === "upcoming") return { bookable: false, availability: "Signup Not Open Yet", areas };
   if (!availability.bookable) return { bookable: false, availability: "Closed", areas };
+  if (areas.some(area => isCustomerStorageCategory(area.name) && area.full)) return { bookable: false, availability: "Full", areas };
   if (!capacity.bookable) return { bookable: false, availability: "Full", areas };
   if (capacity.waitlistOnly) return { bookable: true, availability: "Waitlist", areas };
   if (capacity.remainingRatio <= .1) return { bookable: true, availability: "Nearly Full", areas };

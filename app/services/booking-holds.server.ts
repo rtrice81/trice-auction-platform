@@ -1,3 +1,4 @@
+import { isCustomerStorageCategory } from "../lib/customer-storage-capacity";
 import { type BookingInput, type CapacityContext, validateBooking } from "./booking.server";
 import { ensureUserRole } from "./user-roles.server";
 import { DEFAULT_BOOKING_HOLD_DURATION_MINUTES, getBookingHoldDuration } from "./booking-hold-duration.server";
@@ -19,8 +20,9 @@ export async function reserveBookingHold(db: D1Database, input: BookingInput, bo
   // booking path. The write below is an additional atomic guard, not a second
   // set of business rules.
   const validation = await validateBooking(db, { ...input, userId: userId ?? 0 }, { excludedHoldId: existing?.id });
-  const fullAreas = validation.capacityContext?.areas.filter(area => area.requestedPoints > 0 && area.usedPoints >= area.allowedPoints).map(area => area.name) ?? [];
-  if (fullAreas.length) return { ok: false as const, errors: [`${fullAreas.join(", ")} capacity filled while you were completing your appointment. Please update your item allocation using the remaining available categories.`] };
+  if (validation.capacityContext?.areas.some(area => isCustomerStorageCategory(area.name) && area.usedPoints >= area.allowedPoints)) {
+    return { ok: false as const, errors: ["This drop-off date has reached storage capacity and is no longer accepting appointments."] };
+  }
   if (!validation.ok || validation.appointmentStatus !== "scheduled") {
     return { ok: false as const, errors: validation.ok ? ["This availability was just reserved by another customer. Please adjust your load or select another Drop-Off Date."] : validation.errors };
   }
@@ -100,21 +102,21 @@ export async function getBookingHold(db: D1Database, bookingAttemptId: string | 
 }
 
 function atomicCapacityCondition(excludedId: string, dayId: number, values: { daily: number; smalls: number; large: number; outdoor: number }, context: CapacityContext) {
-  const areaLimit = (name: string) => context.areas.find((area) => area.name === name)?.allowedPoints ?? 0;
-  const usage = (column: "reserved_smalls_points" | "reserved_large_furniture_points" | "reserved_outdoor_points", name: string) =>
-    `(COALESCE((SELECT SUM(allocation.capacity_points) FROM appointment_area_allocations allocation JOIN appointments appointment ON appointment.id=allocation.appointment_id WHERE appointment.appointment_date=(SELECT dropoff_date FROM dropoff_days WHERE id=?) AND appointment.status IN ('scheduled','checked_in','completed') AND allocation.item_area_id=(SELECT id FROM item_areas WHERE name=?)),0) + COALESCE((SELECT SUM(${column}) FROM booking_holds WHERE dropoff_day_id=? AND status='active' AND expires_at>CURRENT_TIMESTAMP AND appointment_status='scheduled' AND id != ?),0) + ? <= ?)`;
+  const usage = (column: "reserved_smalls_points" | "reserved_large_furniture_points" | "reserved_outdoor_points") => {
+    const used = `COALESCE((SELECT SUM(allocation.capacity_points) FROM appointment_area_allocations allocation JOIN appointments appointment ON appointment.id=allocation.appointment_id WHERE appointment.appointment_date=(SELECT dropoff_date FROM dropoff_days WHERE id=?) AND appointment.status IN ('scheduled','checked_in','completed') AND allocation.item_area_id=(SELECT id FROM item_areas WHERE name=?)),0) + COALESCE((SELECT SUM(${column}) FROM booking_holds WHERE dropoff_day_id=? AND status='active' AND expires_at>CURRENT_TIMESTAMP AND appointment_status='scheduled' AND id != ?),0)`;
+    const limit = `COALESCE((SELECT COALESCE(o.capacity_points_override, a.normal_capacity_points) FROM item_areas a LEFT JOIN dropoff_day_area_overrides o ON o.item_area_id=a.id AND o.dropoff_day_id=? WHERE a.name=? AND a.active=1),0)`;
+    return `((${used}) < ${limit} AND (${used}) + ? <= ${limit})`;
+  };
   return `(
     COALESCE((SELECT SUM(type.capacity_points) FROM appointments appointment JOIN dropoff_types type ON type.id=appointment.dropoff_type_id WHERE appointment.appointment_date=(SELECT dropoff_date FROM dropoff_days WHERE id=?) AND appointment.status IN ('scheduled','checked_in','completed')),0)
     + COALESCE((SELECT SUM(reserved_daily_intake_points) FROM booking_holds WHERE dropoff_day_id=? AND status='active' AND expires_at>CURRENT_TIMESTAMP AND appointment_status='scheduled' AND id != ?),0) + ? <= ?
-  ) AND ${usage("reserved_smalls_points", "Smalls")} AND ${usage("reserved_large_furniture_points", "Large/Furniture")} AND ${usage("reserved_outdoor_points", "Outdoor")}`;
+  ) AND ${usage("reserved_smalls_points")} AND ${usage("reserved_large_furniture_points")} AND ${usage("reserved_outdoor_points")}`;
 }
 
 function conditionBindings(excludedId: string, dayId: number, values: { daily: number; smalls: number; large: number; outdoor: number }, context: CapacityContext) {
-  const limit = (name: string) => context.areas.find((area) => area.name === name)?.allowedPoints ?? 0;
+  const areaBindings = (name: string, requested: number) => [dayId, name, dayId, excludedId, dayId, name, dayId, name, dayId, excludedId, requested, dayId, name];
   return [dayId, dayId, excludedId, values.daily, context.day?.capacityPoints ?? 0,
-    dayId, "Smalls", dayId, excludedId, values.smalls, limit("Smalls"),
-    dayId, "Large/Furniture", dayId, excludedId, values.large, limit("Large/Furniture"),
-    dayId, "Outdoor", dayId, excludedId, values.outdoor, limit("Outdoor")];
+    ...areaBindings("Smalls", values.smalls), ...areaBindings("Large/Furniture", values.large), ...areaBindings("Outdoor", values.outdoor)];
 }
 
 function sameRequest(hold: BookingHold, input: BookingInput) { return hold.appointmentDate === input.appointmentDate && hold.dropoffTypeId === input.dropoffTypeId && JSON.stringify(hold.allocations) === JSON.stringify(input.allocations); }

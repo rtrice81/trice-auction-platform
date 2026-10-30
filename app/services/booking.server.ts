@@ -1,4 +1,4 @@
-import { customerStorageAvailability } from "../lib/customer-storage-capacity";
+import { customerStorageAvailability, isCustomerStorageCategory } from "../lib/customer-storage-capacity";
 import { getEffectiveDateCapacity, type EffectiveDateCapacity } from "./date-capacity.server";
 import { getBookableBookingEventForDate } from "./booking-event.server";
 import { bookingEventInstant } from "../lib/booking-event-time";
@@ -333,6 +333,9 @@ export async function validateBooking(
     day: capacity.context.day,
     areas: capacity.context.areas,
   };
+  // Staff edits and authorized admin scheduling retain their existing rules.
+  const storageClosed = !validationOptions.allowAdminScheduling && !input.appointmentId && capacity.status !== "waitlisted" && capacity.context.areas.some(area => isCustomerStorageCategory(area.name) && area.usedPoints >= area.allowedPoints);
+  if (storageClosed) capacity.errors.unshift("This drop-off date has reached storage capacity and is no longer accepting appointments.");
   const errors = [...(monthlyViolation ? [monthlyViolation] : []), ...capacity.errors];
   const overridableViolations = [
     ...(monthlyViolation ? [monthlyViolation] : []),

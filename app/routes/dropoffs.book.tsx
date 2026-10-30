@@ -42,7 +42,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   const formData = await request.formData();
   const currentHold = formData.get("intent") === "complete" ? await getBookingHold(env.trice_auction_db, getBookingAttemptId(request)) : null;
   const protectedHold = selected && selected.date.availability === "Full" && currentHold?.status === "active" && currentHold.appointmentDate === selected.date.eventDate && Date.parse(`${currentHold.expiresAt.replace(" ", "T")}Z`) > Date.now();
-  if (!selected || (!selected.date.bookable && !protectedHold)) return data({ ok: false as const, requiresAuthentication: false, errors: ["This drop-off date is not currently available for signup."] }, { status: 400 });
+  if (!selected || (!selected.date.bookable && !protectedHold)) return data({ ok: false as const, requiresAuthentication: false, errors: [selected?.date.availability === "Full" ? "This drop-off date has reached storage capacity and is no longer accepting appointments." : "This drop-off date is not currently available for signup."] }, { status: 400 });
   const pendingBooking = { ...pendingBookingFromForm(formData), appointmentDate: selected.date.eventDate };
   let attemptId = getBookingAttemptId(request) ?? createBookingAttemptId();
   const user = await getCurrentUser(request, env.trice_auction_db, runtime);
