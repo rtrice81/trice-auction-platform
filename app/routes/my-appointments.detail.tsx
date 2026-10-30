@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { data, Form, Link } from "react-router";
 import type { Route } from "./+types/my-appointments.detail";
-import { requireRole } from "../services/auth.server";
+import { requireUser } from "../services/auth.server";
 import { getCustomerDropoff, updateCustomerDropoffDescription } from "../services/customer-appointments.server";
 import { cancelWaitlistableAppointment, queueAppointmentRescheduled } from "../services/notification.server";
 import { getInternalAppointmentSnapshot, internalAppointmentDetailsChanged } from "../services/internal-appointment-notifications.server";
@@ -11,14 +11,14 @@ import { Button, FormField, Notice, PageCard, PageIntro, PageShell } from "../co
 const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: string };
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  const user = await requireRole(request, env.trice_auction_db, runtime, "consignor");
+  const user = await requireUser(request, env.trice_auction_db, runtime);
   const appointment = await getCustomerDropoff(env.trice_auction_db, user.id, Number(params.id));
   if (!appointment) throw new Response("Not Found", { status: 404 });
   return { appointment };
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
-  const user = await requireRole(request, env.trice_auction_db, runtime, "consignor");
+  const user = await requireUser(request, env.trice_auction_db, runtime);
   const appointmentId = Number(params.id);
   const appointment = await getCustomerDropoff(env.trice_auction_db, user.id, appointmentId);
   if (!appointment) throw new Response("Not Found", { status: 404 });

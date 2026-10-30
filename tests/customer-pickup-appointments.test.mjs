@@ -195,6 +195,25 @@ test("customer drop-off details allow only the description and enforce ownership
   assert.equal(sqlite.prepare("SELECT status FROM appointments WHERE id=?").get(id).status, "cancelled");
 });
 
+test("an appointment owner without the consignor role can view, update and cancel their drop-off", async t => {
+  const { db, sqlite, addAppointment } = fixture(t);
+  const id = addAppointment("scheduled");
+  const otherId = addAppointment("scheduled", 10, 3);
+  sqlite.prepare("DELETE FROM user_roles WHERE user_id=?").run(2);
+  const { list, dropoff } = routes(db);
+  assert.ok((await list.loader({ request: request() })).data.appointments.some(appointment => appointment.id === id && appointment.kind === "dropoff"));
+  assert.equal((await dropoff.loader({ request: request(), params: { id: String(id) } })).appointment.id, id);
+  const updated = await dropoff.action({ request: request(`/my-appointments/${id}`, 2, { description: "Updated without a role" }), params: { id: String(id) } });
+  assert.match(updated.data.message, /updated/);
+  assert.equal(sqlite.prepare("SELECT description FROM appointments WHERE id=?").get(id).description, "Updated without a role");
+  for (const values of [{ description: "Not mine" }, { intent: "cancel" }]) {
+    await assert.rejects(dropoff.action({ request: request(`/my-appointments/${otherId}`, 2, values), params: { id: String(otherId) } }), response => response.status === 404);
+  }
+  const cancelled = await dropoff.action({ request: request(`/my-appointments/${id}`, 2, { intent: "cancel" }), params: { id: String(id) } });
+  assert.match(cancelled.data.message, /cancelled/);
+  assert.equal(sqlite.prepare("SELECT status FROM appointments WHERE id=?").get(otherId).status, "scheduled");
+});
+
 test("admin drop-off editing still updates date, load type, description and allocations", async t => {
   const { db, sqlite, addAppointment } = fixture(t);
   const id = addAppointment("scheduled");
