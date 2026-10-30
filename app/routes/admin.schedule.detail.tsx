@@ -1,6 +1,8 @@
 import { env } from "cloudflare:workers";
 import { data, Form, Link, redirect } from "react-router";
 import type { Route } from "./+types/admin.schedule.detail";
+import { AdminBreadcrumbs, dropoffBreadcrumbs } from "../components/admin-breadcrumbs";
+import { getDropoffHierarchy } from "../services/admin-breadcrumbs.server";
 import { DropoffEventForm } from "../components/dropoff-event-form";
 import { requireRole } from "../services/auth.server";
 import {
@@ -26,11 +28,12 @@ const runtime = env as unknown as { AUTH_SECRET?: string; BETTER_AUTH_URL?: stri
 export async function loader({ request, params }: Route.LoaderArgs) {
   await requireRole(request, env.trice_auction_db, runtime, "admin");
   const status = new URL(request.url).searchParams.get("status") ?? "all";
-  const [event, appointmentOptions] = await Promise.all([
+  const [event, appointmentOptions, hierarchy] = await Promise.all([
     getDropoffEventById(env.trice_auction_db, Number(params.id), status === "all" ? undefined : status),
     getBookingFormOptions(env.trice_auction_db),
+    getDropoffHierarchy(env.trice_auction_db, { id: Number(params.id) }),
   ]);
-  return { event, appointmentOptions, status, created: new URL(request.url).searchParams.has("created") };
+  return { event, appointmentOptions, hierarchy, status, created: new URL(request.url).searchParams.has("created") };
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -55,7 +58,8 @@ export default function DropoffEventDetail({ loaderData, actionData }: Route.Com
   const [appointmentMessage, setAppointmentMessage] = useState<string | null>(null);
   return (
     <main className="mx-auto max-w-5xl p-8">
-      <Link to="/admin/schedule">← Drop-Off Events</Link>
+      <AdminBreadcrumbs items={dropoffBreadcrumbs(loaderData.hierarchy)} />
+      <Link to={loaderData.hierarchy?.bookingEventId ? `/admin/booking-events/${loaderData.hierarchy.bookingEventId}` : "/admin/schedule"} className="font-semibold text-[#9d302f] underline">← Back to {loaderData.hierarchy?.bookingEventId ? "Booking Event" : "Schedule"}</Link>
       <header className="mt-4"><h1 className="text-3xl font-bold">{event.eventName || "Drop-Off Event"}</h1><p className="mt-1 text-stone-600">{event.date} · {event.visibility === "private" ? "Private / Internal" : "Public"} · {event.isOpen ? "Open for bookings" : "Closed for bookings"}</p></header>
       <p className="mt-4 text-sm">Daily intake: {event.usedPoints} / {event.dailyCapacityPoints} confirmed{event.usedPoints > event.dailyCapacityPoints ? <strong className="ml-2 text-red-800">Over capacity by {event.usedPoints - event.dailyCapacityPoints} points</strong> : null}</p>
       <StorageCapacitySummary areas={event.areas}/>

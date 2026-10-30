@@ -23,6 +23,8 @@ const customers = await import(await moduleUrl(new URL("../app/services/customer
 const adminSources = await Promise.all(["admin.pickups.new", "admin.pickups.edit"].map(name => readFile(new URL(`../app/routes/${name}.tsx`, import.meta.url), "utf8")));
 const internalNotifications = await import(await moduleUrl(new URL("../app/services/internal-appointment-notifications.server.ts", import.meta.url)));
 const archive = await import("../app/lib/booking-event-archive.js");
+const breadcrumbs = await import(await moduleUrl(new URL("../app/components/admin-breadcrumbs.tsx", import.meta.url)));
+const breadcrumbService = await import(await moduleUrl(new URL("../app/services/admin-breadcrumbs.server.ts", import.meta.url)));
 const managerSource = await readFile(new URL("../app/routes/manager.detail.tsx", import.meta.url), "utf8");
 const adminDropoffSource = await readFile(new URL("../app/routes/admin.appointments.edit.tsx", import.meta.url), "utf8");
 const audit = await import(await moduleUrl(new URL("../app/services/appointment-override-audit.server.ts", import.meta.url)));
@@ -56,6 +58,7 @@ function routes(db) {
     "../services/booking-success-flash.server": flash, "../services/booking.server": booking,
     "../services/notification.server": notificationService, "../services/internal-appointment-notifications.server": internalNotifications,
     "../components/design-system": design, "../components/confirmation-form": confirmation,
+    "../components/admin-breadcrumbs": breadcrumbs, "../services/admin-breadcrumbs.server": breadcrumbService,
     "../components/area-allocation-fields": allocations, "../services/appointment-override-audit.server": audit, "../lib/booking-event-archive.js": archive,
   };
   const [list, dropoff, pickup] = sources.map(source => compile(source, imports));
